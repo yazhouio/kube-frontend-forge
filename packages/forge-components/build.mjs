@@ -39,6 +39,7 @@ async function runBuild() {
       "@kubed/icons",
       "zustand",
       "zustand/*",
+      "styled-components",
     ],
     sourcemap: true,
   });

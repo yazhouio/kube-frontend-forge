@@ -30,7 +30,8 @@ COPY --from=deps /app/packages/forge-components/node_modules ./packages/forge-co
 COPY --from=deps /app/packages/forge-core/node_modules ./packages/forge-core/node_modules
 COPY --from=deps /app/packages/project-generator/node_modules ./packages/project-generator/node_modules
 
-RUN pnpm -r --filter @frontend-forge/server... run build
+RUN pnpm --filter @frontend-forge/forge-components build \
+ && pnpm -r --filter @frontend-forge/server... run build
 RUN pnpm --filter @frontend-forge/server deploy --prod /app/server
 RUN pnpm --filter @frontend-forge/vendor deploy --prod /app/server/vendor
 RUN find /app/server -path '*/node_modules/*' -type d \( \

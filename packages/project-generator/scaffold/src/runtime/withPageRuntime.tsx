@@ -11,11 +11,25 @@ import {
   useItemActions,
   useTableActions,
   useWorkspaceProjectSelect,
+  buildCreateActionGuard,
 } from "@ks-console/shared";
 import { RuntimePageInfo } from "./types";
 import { usePageRuntimeRouter } from "./routerHook";
 
 const pageContext = {
+  useWorkspaceTableActions: (config) =>
+    useTableActions({
+      ...config,
+      actions: config.actions.map((item) => {
+        return {
+          ...item,
+          ...buildCreateActionGuard({
+            params: config.params,
+          }),
+          action: item.action,
+        };
+      }),
+    }),
   useTableActions: useTableActions,
   useBatchActions: useBatchActions,
   useItemActions: useItemActions,
@@ -24,6 +38,7 @@ const pageContext = {
   useWorkspaceProjectSelect,
   t: window.t ?? ((d) => d),
 };
+
 export function withPageRuntime<P>(
   Page: React.ComponentType<P>,
   page: RuntimePageInfo,

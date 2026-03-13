@@ -73,7 +73,7 @@ export const CrdTableNode: NodeDefinition = {
     stats: [],
     jsx: `<PageTable
   tableKey={%%TABLE_KEY%%}
-  title={%%TITLE%%}
+  title={t(%%TITLE%%)}
   authKey={%%AUTH_KEY%%}
   params={%%PARAMS%%}
   createInitialValue={%%CREATE_INITIAL_VALUE%%}
@@ -130,7 +130,7 @@ export const IframeNode: NodeDefinition = {
       {
         id: "loadingState",
         scope: StatementScope.FunctionBody,
-        code: "const [loading, setLoading] = useState(true);",
+        code: "const [loading, setLoading] = useState(new URL(%%FRAME_URL%%, window.location.href).origin === window.location.origin);",
         output: ["loading", "setLoading"],
         depends: [],
       },
@@ -170,6 +170,7 @@ export const IframeNode: NodeDefinition = {
     meta: {
       inputPaths: {
         $jsx: ["FRAME_URL"],
+        loadingState: ["FRAME_URL"],
       },
     },
   },

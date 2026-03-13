@@ -7,8 +7,8 @@ KubeSphere v4 插件构建服务：接收 TS/TSX/CSS 源码，通过 esbuild + S
 - POST `/page/code` 生成单页代码（schema → TS/TSX string）
 - POST `/project/files` 生成项目 TS 源码数组（VirtualFile[]）
 - POST `/project/files.tar.gz` 打包项目 TS 源码数组（tar.gz）
-- POST `/project/build` 编译项目并返回产物数组（VirtualFile[]）
-- POST `/project/build.tar.gz` 打包编译产物数组（tar.gz）
+- POST `/api/project/build` 编译项目并返回产物数组（VirtualFile[]）
+- POST `/api/project/build.tar.gz` 打包编译产物数组（tar.gz）
 - POST `/scene/project/files` 由 Scene 生成项目文件（VirtualFile[]）
 - POST `/scene/project/files.tar.gz` 由 Scene 打包项目文件（tar.gz）
 - POST `/scene/project/build` 由 Scene 构建并返回产物数组（VirtualFile[]）
@@ -156,11 +156,11 @@ curl -X POST http://localhost:3000/build \
 - 请求体同 `/project/files`
 - 响应为 `tar.gz` 二进制内容（`Content-Type: application/gzip`）
 
-### `POST /project/build`
+### `POST /api/project/build`
 - 请求体同 `/project/files`
 - 返回编译后的 `VirtualFile[]`（SystemJS JS + 可选 CSS）
 
-### `POST /project/build.tar.gz`
+### `POST /api/project/build.tar.gz`
 - 请求体同 `/project/files`
 - 响应为编译产物的 `tar.gz`
 

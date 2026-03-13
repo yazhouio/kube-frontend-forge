@@ -49,8 +49,8 @@ pnpm --filter @frontend-forge/server dev
 - `POST /page/code`：page schema → TS/TSX 代码
 - `POST /project/files`：manifest → VirtualFile[]
 - `POST /project/files.tar.gz`：manifest → tar.gz 源码包
-- `POST /project/build`：manifest → SystemJS 产物数组
-- `POST /project/build.tar.gz`：manifest → tar.gz 产物包
+- `POST /api/project/build`：manifest → SystemJS 产物数组
+- `POST /api/project/build.tar.gz`：manifest → tar.gz 产物包
 
 详细请求/响应示例见 `apps/server/README.md`。
 

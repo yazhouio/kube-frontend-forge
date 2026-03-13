@@ -50,14 +50,14 @@ export default async function router(
   );
 
   app.post<{ Body: ProjectManifestRequestBody }>(
-    "/project/build",
+    "/api/project/build",
     async (req, reply) => {
       return controller.projectBuild(req.body, reply);
     },
   );
 
   app.post<{ Body: ProjectManifestRequestBody }>(
-    "/project/build.tar.gz",
+    "/api/project/build.tar.gz",
     async (req, reply) => {
       return controller.projectBuildTarGz(req.body, reply);
     },

@@ -27,7 +27,7 @@ export interface PageConfig {
   dataSources?: DataSourceNode[];
   actionGraphs?: ActionGraphSchema[];
   root: ComponentNode;
-  context: Record<string, any>; // action, event
+  context: Record<string, any>;
 }
 
 interface PageMeta {
@@ -35,7 +35,7 @@ interface PageMeta {
   name: string;
   title?: string;
   description?: string;
-  path: string;
+  path?: string;
   // layout?: "default" | "blank" | "sidebar" | "dashboard";
   // permissions?: string[];
 }

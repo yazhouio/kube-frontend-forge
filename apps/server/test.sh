@@ -89,8 +89,8 @@ post_tar "/project/files.tar.gz" "$MANIFEST_JSON" "$TMP_DIR/project-files.tar.gz
 tar -tzf "$TMP_DIR/project-files.tar.gz" | rg -q '^src/index.ts$'
 
 
-echo "==> /project/build"
-post_json "/project/build" "$MANIFEST_JSON" "$TMP_DIR/project-build.out.json"
+echo "==> /api/project/build"
+post_json "/api/project/build" "$MANIFEST_JSON" "$TMP_DIR/project-build.out.json"
 jq -e '.ok == true' "$TMP_DIR/project-build.out.json" >/dev/null
 jq -r '.files[] | select(.path == "index.js") | .content' "$TMP_DIR/project-build.out.json" > "$TMP_DIR/project-build.js"
 rg -q "System.register" "$TMP_DIR/project-build.js"

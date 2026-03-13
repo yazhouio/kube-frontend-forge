@@ -73,7 +73,7 @@ export const CrdTableNode: NodeDefinition = {
     stats: [],
     jsx: `<PageTable
   tableKey={%%TABLE_KEY%%}
-  title={%%TITLE%%}
+  title={t(%%TITLE%%)}
   authKey={%%AUTH_KEY%%}
   params={%%PARAMS%%}
   createInitialValue={%%CREATE_INITIAL_VALUE%%}

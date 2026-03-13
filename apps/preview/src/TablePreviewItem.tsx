@@ -64,9 +64,9 @@ const useCrdColumns = () => {
   };
 };
 const useStore = getCrdStore({
-  apiVersion: "v1",
-  plural: "servicemonitors",
-  group: "monitoring.coreos.com",
+  apiVersion: "v1alpha1",
+  plural: "frontendintegrations",
+  group: "frontend-forge.kubesphere.io",
   kapi: true,
 });
 const useCrdPageState = (columns, storeOptions = undefined) => {

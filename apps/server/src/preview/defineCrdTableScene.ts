@@ -11,10 +11,17 @@ type CrdConfig = {
   [key: string]: unknown;
 };
 
+type CrdTableEmptyState = {
+  titleI18nKey?: string;
+  descriptionI18nKey?: string;
+  command?: string;
+};
+
 type CrdTablePageInfo = {
   id: string;
   title: string;
   authKey: string;
+  emptyState?: CrdTableEmptyState;
 };
 
 type CrdTableColumnRender = {
@@ -49,6 +56,11 @@ export type CrdTableSceneConfig = {
   storeOptions?: Record<string, unknown>;
 };
 
+const DEFAULT_EMPTY_TITLE_I18N_KEY =
+  "PROJECT_GENERATOR.CRD_NOT_FOUND_TITLE";
+const DEFAULT_EMPTY_DESCRIPTION_I18N_KEY =
+  "PROJECT_GENERATOR.CRD_NOT_FOUND_DESCRIPTION";
+
 const buildCreateInitialValue = (crd: CrdConfig) => {
   const apiVersion =
     typeof crd.apiVersion === "string" && crd.apiVersion.includes("/")
@@ -61,6 +73,9 @@ const buildCreateInitialValue = (crd: CrdConfig) => {
     kind: crd.kind,
   };
 };
+
+const buildEmptyCommand = (crd: CrdConfig) =>
+  `kubectl label crd ${crd.plural}.${crd.group} kubesphere.io/resource-served=true`;
 
 const buildColumnRender = (render: CrdTableColumnRender) => {
   const payload = { ...(render.payload ?? {}) };
@@ -192,6 +207,15 @@ export const defineCrdTableScene = (scene: CrdTableSceneConfig): PageConfig => {
           type: "binding",
           source: "pageState",
           bind: "create",
+        },
+        NOT_FOUND_EMPTY_PROPS: {
+          titleI18nKey:
+            scene.page.emptyState?.titleI18nKey ??
+            DEFAULT_EMPTY_TITLE_I18N_KEY,
+          descriptionI18nKey:
+            scene.page.emptyState?.descriptionI18nKey ??
+            DEFAULT_EMPTY_DESCRIPTION_I18N_KEY,
+          command: scene.page.emptyState?.command ?? buildEmptyCommand(scene.crd),
         },
         CREATE_INITIAL_VALUE: buildCreateInitialValue(scene.crd),
       },

@@ -43,6 +43,10 @@ export const CrdTableNode: NodeDefinition = {
         type: "object",
         description: "Table data",
       },
+      NOT_FOUND_EMPTY_PROPS: {
+        type: "object",
+        description: "404 empty fallback props",
+      },
       IS_LOADING: {
         type: "boolean",
         description: "Loading state",
@@ -68,7 +72,7 @@ export const CrdTableNode: NodeDefinition = {
   generateCode: {
     imports: [
       'import * as React from "react"',
-      'import { PageTable } from "@frontend-forge/forge-components"',
+      'import { CRDTable404Fallback, PageTable } from "@frontend-forge/forge-components"',
     ],
     stats: [],
     jsx: `<PageTable
@@ -83,6 +87,15 @@ export const CrdTableNode: NodeDefinition = {
   columns={%%COLUMNS%%}
   data={%%DATA%%}
   isLoading={%%IS_LOADING%%}
+  fallbacks={[
+    {
+      ...CRDTable404Fallback,
+      props: {
+        ...(CRDTable404Fallback.props || {}),
+        ...(%%NOT_FOUND_EMPTY_PROPS%% || {}),
+      },
+    },
+  ]}
   update={%%UPDATE%%}
   del={%%DEL%%}
   create={%%CREATE%%}
@@ -99,6 +112,7 @@ export const CrdTableNode: NodeDefinition = {
           "PAGE_CONTEXT",
           "COLUMNS",
           "DATA",
+          "NOT_FOUND_EMPTY_PROPS",
           "IS_LOADING",
           "UPDATE",
           "DEL",

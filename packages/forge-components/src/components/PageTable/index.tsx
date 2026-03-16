@@ -7,7 +7,11 @@ import { useModalAction, wrapperComponentModal } from "../../hooks";
 import { useRuntimeContext } from "../../runtime";
 import { DeleteConfirmModal } from "../DeleteConfirm";
 import { BaseTable } from "../Table";
-import { Container, PageLayout, PageTitle } from "./index.styles";
+import {
+  resolveMatchedFallback,
+  type PageTableFallbacks,
+} from "./fallbacks";
+import { PageContainer, PageLayout, PageTitle } from "./index.styles";
 import { YamlModal } from "./YamlModal";
 
 declare module "@tanstack/react-table" {
@@ -77,6 +81,9 @@ function BasePageTable(props) {
     columns,
     toolbarLeft,
     createInitialValue,
+    data,
+    isLoading,
+    fallbacks,
     ...rest
   } = props;
   const { useItemActions, useBatchActions, useTableActions } = pageContext;
@@ -84,12 +91,16 @@ function BasePageTable(props) {
   const t = runtime?.capabilities?.t ?? ((d: string) => d);
   const tableRef = React.useRef<Table<Record<string, unknown>>>(null);
   const resolvedParams = params ?? {};
+  const matchedFallback = resolveMatchedFallback(
+    fallbacks as PageTableFallbacks | undefined,
+    data,
+  );
 
   const { open: createYaml, close: closeYaml } = useModalAction({
     id: tableKey + "-create",
     modal: YamlModal,
     deps: {
-      title: t("CREATE_NAME", { name: t(title) }),
+      title: t("CREATE_NAME", { name: title }),
       initialValue: createInitialValue ?? "",
     },
   });
@@ -258,22 +269,32 @@ function BasePageTable(props) {
     },
   ];
 
+  const fallbackContent = matchedFallback
+    ? React.createElement(matchedFallback.component, matchedFallback.props ?? {})
+    : null;
+
   return (
     <PageLayout>
       <PageTitle>{title}</PageTitle>
-      <Container>
-        <Card padding={0}>
-          <BaseTable
-            {...rest}
-            ref={tableRef}
-            tableMeta={tableMeta}
-            columns={tableColumns}
-          />
-        </Card>
-      </Container>
+      <PageContainer>
+        {fallbackContent ?? (
+          <Card padding={0}>
+            <BaseTable
+              {...rest}
+              ref={tableRef}
+              data={data}
+              isLoading={isLoading}
+              tableMeta={tableMeta}
+              columns={tableColumns}
+            />
+          </Card>
+        )}
+      </PageContainer>
     </PageLayout>
   );
 }
 
 const PageTable = wrapperComponentModal(BasePageTable);
 export { PageTable };
+export { PageLayout, PageTitle, PageContainer } from "./index.styles";
+export * from "./fallbacks";

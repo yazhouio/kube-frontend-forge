@@ -56,12 +56,26 @@ export const fetchHandler = {
   },
 };
 
+const parseResponseBody = async (resp: Response) => {
+  const text = await resp.text();
+  if (!text) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+
 const parseResponseData = async (resp: Response, kapi?: boolean) => {
-  const data = await resp.json();
+  const data = await parseResponseBody(resp);
   if (kapi) {
     return {
       data: get(data, "items"),
       total: get(data, "totalItems") || get(data, "metadata.continue"),
+      status: resp.status,
+      ok: resp.ok,
     };
   }
   const items = get(data, "items");
@@ -70,6 +84,8 @@ const parseResponseData = async (resp: Response, kapi?: boolean) => {
   return {
     data: items,
     total,
+    status: resp.status,
+    ok: resp.ok,
   };
 };
 
@@ -130,6 +146,12 @@ export const getCrdStore = (store: Store) => {
       swr.mutate();
       return res;
     };
-    return { ...swr, create, update, delete: del, batchDelete };
+    return {
+      ...swr,
+      create,
+      update,
+      delete: del,
+      batchDelete,
+    };
   };
 };

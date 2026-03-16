@@ -1,4 +1,5 @@
 import {
+  CRDTable404Fallback,
   PageTable,
   TableTd,
   useRuntimeContext,
@@ -62,12 +63,23 @@ const useCrdColumns = () => {
     columns,
   };
 };
-const useStore = getCrdStore({
+const CRD_CONFIG = {
   apiVersion: "v1",
   plural: "servicemonitors",
   group: "monitoring.coreos.com",
   kapi: true,
-});
+};
+const EMPTY_COMMAND = `kubectl label crd ${CRD_CONFIG.plural}.${CRD_CONFIG.group} kubesphere.io/resource-served=true`;
+const tableFallbacks = [
+  {
+    ...CRDTable404Fallback,
+    props: {
+      ...(CRDTable404Fallback.props || {}),
+      command: EMPTY_COMMAND,
+    },
+  },
+];
+const useStore = getCrdStore(CRD_CONFIG);
 const useCrdPageState = (columns, storeOptions = undefined) => {
   const pageId = "servicemonitors1-workspace";
   const page = usePageStore({
@@ -130,6 +142,7 @@ const useCrdPageState = (columns, storeOptions = undefined) => {
   };
 };
 function CrdTable(props) {
+  const title = "servicemonitors1";
   const { columns: columnsColumns } = useCrdColumns();
   const {
     params: pageStateParams,
@@ -145,7 +158,7 @@ function CrdTable(props) {
   return (
     <PageTable
       tableKey={"servicemonitors1-workspace"}
-      title={"servicemonitors1"}
+      title={title}
       authKey={undefined}
       params={pageStateParams}
       refetch={pageStateRefetch}
@@ -154,6 +167,7 @@ function CrdTable(props) {
       columns={columnsColumns}
       data={pageStateData}
       isLoading={pageStateLoading ?? false}
+      fallbacks={tableFallbacks}
       update={pageStateUpdate}
       del={pageStateDel}
       create={pageStateCreate}

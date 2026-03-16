@@ -1,6 +1,6 @@
 import styled from "styled-components";
 
-export const Container = styled.div`
+export const PageContainer = styled.div`
   padding: 20px;
   table .table-cell {
     word-break: break-word;

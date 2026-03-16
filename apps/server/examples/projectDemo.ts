@@ -169,6 +169,13 @@ const manifest: ExtensionManifest = {
             },
             COLUMNS: { type: "binding", source: "columns", bind: "columns" },
             DATA: { type: "binding", source: "pageState", bind: "data" },
+            NOT_FOUND_EMPTY_PROPS: {
+              titleI18nKey: "PROJECT_GENERATOR.CRD_NOT_FOUND_TITLE",
+              descriptionI18nKey:
+                "PROJECT_GENERATOR.CRD_NOT_FOUND_DESCRIPTION",
+              command:
+                "kubectl label crd servicemonitors.monitoring.coreos.com kubesphere.io/resource-served=true",
+            },
             IS_LOADING: {
               type: "binding",
               source: "pageState",
@@ -272,6 +279,13 @@ const manifest: ExtensionManifest = {
             },
             COLUMNS: { type: "binding", source: "columns", bind: "columns" },
             DATA: { type: "binding", source: "pageState", bind: "data" },
+            NOT_FOUND_EMPTY_PROPS: {
+              titleI18nKey: "PROJECT_GENERATOR.CRD_NOT_FOUND_TITLE",
+              descriptionI18nKey:
+                "PROJECT_GENERATOR.CRD_NOT_FOUND_DESCRIPTION",
+              command:
+                "kubectl label crd servicemonitors.monitoring.coreos.com kubesphere.io/resource-served=true",
+            },
             IS_LOADING: {
               type: "binding",
               source: "pageState",

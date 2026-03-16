@@ -152,13 +152,21 @@ export const CrdPageStateDataSource: DataSourceDefinition = {
   };
 
   const storeParams = { ...params, namespace };
+  const resolvedOptions =
+    storeOptions &&
+    Object.prototype.hasOwnProperty.call(storeOptions, "enabled")
+      ? storeOptions
+      : {
+          ...(storeOptions || {}),
+          enabled: scope !== "namespace" || Boolean(namespace),
+        };
 
   const store = useStore(
     {
       params: storeParams,
       query: storeQuery,
     },
-    storeOptions,
+    resolvedOptions,
   );
 
   return {

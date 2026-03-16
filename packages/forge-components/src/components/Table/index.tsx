@@ -14,6 +14,8 @@ import { usePageTable } from "../../hooks/useTanStackPageTable";
 type TablePayload<TData> = {
   data: TData[];
   total: number;
+  status?: number;
+  ok?: boolean;
 };
 
 type TableMetaWithName<TData> = TableMeta<TData> & {

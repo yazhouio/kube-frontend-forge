@@ -261,6 +261,80 @@ function requiredTemplate(
   return raw;
 }
 
+function assertLocaleMessages(
+  value: unknown,
+  label: string,
+): Record<string, string> {
+  const messages = assertObject(value, label);
+  const normalized: Record<string, string> = {};
+
+  for (const [key, message] of Object.entries(messages)) {
+    if (typeof message !== "string") {
+      throw new Error(`${label}[${key}] must be a string`);
+    }
+    normalized[key] = message;
+  }
+
+  return normalized;
+}
+
+function readScaffoldDefaultLocales(
+  scaffold: Map<string, string>,
+): Array<{ lang: string; messages: Record<string, string> }> {
+  return Array.from(scaffold.entries())
+    .filter(
+      ([relPath]) =>
+        relPath.startsWith("src/locales/defaults/") && relPath.endsWith(".json"),
+    )
+    .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath))
+    .map(([relPath, content]) => {
+      const lang = path.posix.basename(relPath, ".json");
+      ensureSafeFileName(lang, "default locale lang");
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(content);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`invalid scaffold locale JSON: ${relPath}: ${message}`);
+      }
+
+      return {
+        lang,
+        messages: assertLocaleMessages(parsed, `${relPath} messages`),
+      };
+    });
+}
+
+function mergeLocales(
+  defaults: Array<{ lang: string; messages: Record<string, string> }>,
+  locales: ExtensionManifest["locales"],
+) {
+  const merged = new Map<string, Record<string, string>>();
+  const order: string[] = [];
+
+  for (const locale of defaults) {
+    if (!merged.has(locale.lang)) {
+      order.push(locale.lang);
+    }
+    merged.set(locale.lang, { ...locale.messages });
+  }
+
+  for (const locale of locales) {
+    if (!merged.has(locale.lang)) {
+      order.push(locale.lang);
+    }
+    merged.set(locale.lang, {
+      ...(merged.get(locale.lang) || {}),
+      ...locale.messages,
+    });
+  }
+
+  return order.map((lang) => ({
+    lang,
+    messages: merged.get(lang) || {},
+  }));
+}
+
 function warningsFor(options: {
   build?: boolean;
   archive?: boolean;
@@ -291,6 +365,10 @@ export function generateProjectFiles(
   logMessage(options, "copy scaffold");
   const scaffoldFiles = collectScaffoldFiles(SCAFFOLD_DIR);
   const scaffoldMap = new Map(scaffoldFiles.map((f) => [f.path, f.content]));
+  const mergedLocales = mergeLocales(
+    readScaffoldDefaultLocales(scaffoldMap),
+    normalized.locales,
+  );
 
   logMessage(options, "render templates");
   const out: VirtualFile[] = [];
@@ -308,6 +386,7 @@ export function generateProjectFiles(
   for (const f of scaffoldFiles) {
     if (excluded.has(f.path)) continue;
     if (f.path.startsWith("src/pages/__PAGE__/")) continue;
+    if (f.path.startsWith("src/locales/defaults/")) continue;
     out.push(f);
   }
 
@@ -411,7 +490,7 @@ export function generateProjectFiles(
     scaffoldMap,
     "src/locales/index.ts.tpl",
   );
-  const localeInfos = normalized.locales.map((locale) => {
+  const localeInfos = mergedLocales.map((locale) => {
     ensureSafeFileName(locale.lang, "locale lang");
     const variableName = toIdentifier(locale.lang);
     return {
@@ -425,7 +504,7 @@ export function generateProjectFiles(
     throw new Error("locales.lang results in duplicate identifiers");
   }
 
-  for (const locale of normalized.locales) {
+  for (const locale of mergedLocales) {
     out.push({
       path: normalizeRelPath(`src/locales/${locale.lang}.json`),
       content: JSON.stringify(locale.messages, null, 2) + "\n",

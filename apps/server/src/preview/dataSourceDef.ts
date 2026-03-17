@@ -249,8 +249,7 @@ export const WorkspaceCrdPageStateDataSource: DataSourceDefinition = {
 
   const runtime = useRuntimeContext();
   const params = runtime?.route?.params || {};
-  const pageContext = runtime?.capabilities || {};
-  pageContext.useTableActions = pageContext.useWorkspaceTableActions;
+  const pageContext = {...runtime?.capabilities, useTableActions: runtime?.capabilities?.useWorkspaceTableActions};
 
   const storeQuery = useMemo(() => buildSearchObject(page, true), [page]);
 

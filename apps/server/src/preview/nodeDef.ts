@@ -1,7 +1,4 @@
-import {
-  StatementScope,
-  type NodeDefinition,
-} from "@frontend-forge/forge-core/advanced";
+import { type NodeDefinition } from "@frontend-forge/forge-core/advanced";
 
 export const CrdTableNode: NodeDefinition = {
   id: "CrdTable",
@@ -137,54 +134,13 @@ export const IframeNode: NodeDefinition = {
   generateCode: {
     imports: [
       'import * as React from "react"',
-      'import { useRef, useState } from "react"',
-      'import { Loading } from "@kubed/components"',
+      'import { BaseIframe } from "@frontend-forge/forge-components"',
     ],
-    stats: [
-      {
-        id: "loadingState",
-        scope: StatementScope.FunctionBody,
-        code: "const [loading, setLoading] = useState(new URL(%%FRAME_URL%%, window.location.href).origin === window.location.origin);",
-        output: ["loading", "setLoading"],
-        depends: [],
-      },
-      {
-        id: "iframeRef",
-        scope: StatementScope.FunctionBody,
-        code: "const iframeRef = useRef(null);",
-        output: ["iframeRef"],
-        depends: [],
-      },
-      {
-        id: "onIframeLoad",
-        scope: StatementScope.FunctionBody,
-        code: `const onIframeLoad = () => {
-  const iframeDom = iframeRef.current?.contentWindow?.document;
-  setLoading(false);
-};`,
-        output: ["onIframeLoad"],
-        depends: ["iframeRef", "loadingState"],
-      },
-    ],
-    jsx: `<>
-  {loading && <Loading className="page-loading" />}
-  <iframe
-    ref={iframeRef}
-    src={%%FRAME_URL%%}
-    width="100%"
-    height="100%"
-    frameBorder="0"
-    style={{
-      height: "calc(100vh - 68px)",
-      display: loading ? "none" : "block",
-    }}
-    onLoad={onIframeLoad}
-  />
-</>`,
+    stats: [],
+    jsx: `<BaseIframe src={%%FRAME_URL%%} />`,
     meta: {
       inputPaths: {
         $jsx: ["FRAME_URL"],
-        loadingState: ["FRAME_URL"],
       },
     },
   },

@@ -64,28 +64,28 @@ post_tar() {
   fi
 }
 
-echo "==> /build"
-post_json "/build" "$BUILD_JSON" "$TMP_DIR/build.out.json"
+echo "==> /api/build"
+post_json "/api/build" "$BUILD_JSON" "$TMP_DIR/build.out.json"
 jq -e '.ok == true' "$TMP_DIR/build.out.json" >/dev/null
 jq -r '.outputs.js.content' "$TMP_DIR/build.out.json" > "$TMP_DIR/build.js"
 rg -q "System.register" "$TMP_DIR/build.js"
 
-echo "==> /page/code"
-post_json "/page/code" "$PAGE_JSON" "$TMP_DIR/page-code.out.json"
+echo "==> /api/page/code"
+post_json "/api/page/code" "$PAGE_JSON" "$TMP_DIR/page-code.out.json"
 cat "$TMP_DIR/page-code.out.json"
 jq -e '.ok == true' "$TMP_DIR/page-code.out.json" >/dev/null
 jq -r '.code' "$TMP_DIR/page-code.out.json" > "$TMP_DIR/page-code.tsx"
 rg -q "export default" "$TMP_DIR/page-code.tsx"
 
-echo "==> /project/files"
-post_json "/project/files" "$MANIFEST_JSON" "$TMP_DIR/project-files.out.json"
+echo "==> /api/project/files"
+post_json "/api/project/files" "$MANIFEST_JSON" "$TMP_DIR/project-files.out.json"
 cat "$TMP_DIR/project-files.out.json"
 jq -e '.ok == true' "$TMP_DIR/project-files.out.json" >/dev/null
 jq -r '.files[] | select(.path == "src/index.ts") | .content' "$TMP_DIR/project-files.out.json" >/dev/null
 
 
-echo "==> /project/files.tar.gz"
-post_tar "/project/files.tar.gz" "$MANIFEST_JSON" "$TMP_DIR/project-files.tar.gz"
+echo "==> /api/project/files.tar.gz"
+post_tar "/api/project/files.tar.gz" "$MANIFEST_JSON" "$TMP_DIR/project-files.tar.gz"
 tar -tzf "$TMP_DIR/project-files.tar.gz" | rg -q '^src/index.ts$'
 
 
@@ -96,8 +96,8 @@ jq -r '.files[] | select(.path == "index.js") | .content' "$TMP_DIR/project-buil
 rg -q "System.register" "$TMP_DIR/project-build.js"
 
 
-echo "==> /project/build.tar.gz"
-post_tar "/project/build.tar.gz" "$MANIFEST_JSON" "$TMP_DIR/project-build.tar.gz"
+echo "==> /api/project/build.tar.gz"
+post_tar "/api/project/build.tar.gz" "$MANIFEST_JSON" "$TMP_DIR/project-build.tar.gz"
 tar -tzf "$TMP_DIR/project-build.tar.gz" | rg -q '^index.js$'
 
 

@@ -4,15 +4,7 @@ import type {
   PageSchemaRequestBody,
   ProjectJsBundleRequestBody,
   ProjectManifestRequestBody,
-  SceneJsBundleRequestBody,
-  SceneRequestBody,
 } from '../types.js';
-import { createExtensionManifest } from '../preview/extensionManifest.js';
-import {
-  buildSceneProjectFiles,
-  buildSceneProjectTarGz,
-  generateSceneProjectFiles,
-} from '../preview/sceneArtifacts.js';
 import type { ControllerDeps } from './deps.js';
 import { handleKnownError } from './errors.js';
 import { createJsBundleFromManifest } from './jsbundle.js';
@@ -22,7 +14,6 @@ import {
   requireJsBundleParams,
   requireManifest,
   requirePageSchema,
-  requireScene,
 } from './validation.js';
 
 export function createProjectHandlers({ forge, k8s }: ControllerDeps) {
@@ -129,59 +120,6 @@ export function createProjectHandlers({ forge, k8s }: ControllerDeps) {
       }
     },
 
-    sceneProjectFiles: async (body: SceneRequestBody, reply: FastifyReply) => {
-      try {
-        const { type, config } = requireScene(body);
-        reply.log.info({ type, sceneId: config.meta?.id }, 'Scene project files requested');
-        const files = await generateSceneProjectFiles(forge, type, config);
-        reply.log.info({ fileCount: files.length }, 'Scene project files completed');
-        return { ok: true, files };
-      } catch (err) {
-        return handleKnownError(err, reply);
-      }
-    },
-
-    sceneProjectFilesTarGz: async (body: SceneRequestBody, reply: FastifyReply) => {
-      try {
-        const { type, config } = requireScene(body);
-        reply.log.info({ type, sceneId: config.meta?.id }, 'Scene project tar.gz requested');
-        const files = await generateSceneProjectFiles(forge, type, config);
-        const archive = forge.emitToTarGz(files);
-        reply.header('Content-Type', 'application/gzip');
-        reply.header('Content-Disposition', 'attachment; filename="project.tar.gz"');
-        reply.log.info({ fileCount: files.length, size: archive.byteLength }, 'Scene project tar.gz completed');
-        return reply.send(archive);
-      } catch (err) {
-        return handleKnownError(err, reply);
-      }
-    },
-
-    sceneProjectBuild: async (body: SceneRequestBody, reply: FastifyReply) => {
-      try {
-        const { type, config } = requireScene(body);
-        reply.log.info({ type, sceneId: config.meta?.id }, 'Scene project build requested');
-        const files = await buildSceneProjectFiles(forge, type, config);
-        reply.log.info({ fileCount: files.length }, 'Scene project build completed');
-        return { ok: true, files };
-      } catch (err) {
-        return handleKnownError(err, reply);
-      }
-    },
-
-    sceneProjectBuildTarGz: async (body: SceneRequestBody, reply: FastifyReply) => {
-      try {
-        const { type, config } = requireScene(body);
-        reply.log.info({ type, sceneId: config.meta?.id }, 'Scene project build tar.gz requested');
-        const archive = await buildSceneProjectTarGz(forge, type, config);
-        reply.header('Content-Type', 'application/gzip');
-        reply.header('Content-Disposition', 'attachment; filename="build.tar.gz"');
-        reply.log.info({ size: archive.byteLength }, 'Scene project build tar.gz completed');
-        return reply.send(archive);
-      } catch (err) {
-        return handleKnownError(err, reply);
-      }
-    },
-
     projectJsBundle: async (
       req: FastifyRequest<{ Body: ProjectJsBundleRequestBody }>,
       reply: FastifyReply
@@ -191,33 +129,6 @@ export function createProjectHandlers({ forge, k8s }: ControllerDeps) {
         const token = requireAuthToken(req, k8sConfig);
         const { name, extensionName, namespace, cluster } = requireJsBundleParams(req.body);
         const manifest = requireManifest(req.body);
-        return createJsBundleFromManifest({
-          forge,
-          k8s: k8sConfig,
-          token: token,
-          manifest,
-          name,
-          extensionName,
-          namespace,
-          cluster,
-          reply,
-        });
-      } catch (err) {
-        return handleKnownError(err, reply);
-      }
-    },
-
-    sceneJsBundle: async (
-      req: FastifyRequest<{ Body: SceneJsBundleRequestBody }>,
-      reply: FastifyReply
-    ) => {
-      try {
-        const k8sConfig = requireK8sConfig(k8s);
-        const token = requireAuthToken(req, k8sConfig);
-        const { name, extensionName, namespace, cluster } = requireJsBundleParams(req.body);
-        const { type, config } = requireScene(req.body);
-        const manifest = createExtensionManifest(type, config);
-
         return createJsBundleFromManifest({
           forge,
           k8s: k8sConfig,

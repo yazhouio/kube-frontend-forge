@@ -3,19 +3,13 @@
 KubeSphere v4 插件构建服务：接收 TS/TSX/CSS 源码，通过 esbuild + SWC 生成 **SystemJS** 单文件 JS，支持可选 Tailwind CSS，同时具备缓存、并发队列与超时控制。
 
 ## 能力概览
-- POST `/build` 接收文件数组并返回 SystemJS 产物（必含 `System.register`）
-- POST `/page/code` 生成单页代码（schema → TS/TSX string）
-- POST `/project/files` 生成项目 TS 源码数组（VirtualFile[]）
-- POST `/project/files.tar.gz` 打包项目 TS 源码数组（tar.gz）
+- POST `/api/build` 接收文件数组并返回 SystemJS 产物（必含 `System.register`）
+- POST `/api/page/code` 生成单页代码（schema → TS/TSX string）
+- POST `/api/project/files` 生成项目 TS 源码数组（VirtualFile[]）
+- POST `/api/project/files.tar.gz` 打包项目 TS 源码数组（tar.gz）
 - POST `/api/project/build` 编译项目并返回产物数组（VirtualFile[]）
 - POST `/api/project/build.tar.gz` 打包编译产物数组（tar.gz）
-- POST `/scene/project/files` 由 Scene 生成项目文件（VirtualFile[]）
-- POST `/scene/project/files.tar.gz` 由 Scene 打包项目文件（tar.gz）
-- POST `/scene/project/build` 由 Scene 构建并返回产物数组（VirtualFile[]）
-- POST `/scene/project/build.tar.gz` 由 Scene 打包构建产物（tar.gz）
-- POST `/k8s/jsbundles` 编译 manifest 并调用 K8s 创建 JSBundle
-- POST `/k8s/jsbundles/scene` 由 Scene 构建并调用 K8s 创建 JSBundle
-- CRUD `/kapis/frontend-forge.io/v1alpha1/frontendintegrations` 前端集成管理（通过 JSBundle 代理）
+- POST `/api/k8s/jsbundles` 编译 manifest 并调用 K8s 创建 JSBundle
 - 可选 Tailwind v4 输出 CSS，和 JS 构建解耦
 - 内存 LRU + 磁盘 JSON 缓存，命中即回
 - 并发队列、超时与隔离的临时工作目录，防止资源争用与路径穿越
@@ -55,7 +49,7 @@ pnpm --filter @frontend-forge/server dev
 ```
 
 字段说明：
-- `k8s.server`：K8s API Server 地址（用于 `/k8s/jsbundles`）
+- `k8s.server`：K8s API Server 地址（用于 `/api/k8s/jsbundles`）
 - `k8s.tokenCookieName`：从 cookie 读取 token 的字段名（默认 `token`）
 - `static[].root`：静态目录（相对路径以 `config.json` 所在目录为基准）
 - `static[].prefix`：URL 前缀（建议以 `/` 开头且以 `/` 结尾；例如 `/assets/`）
@@ -78,13 +72,12 @@ pnpm --filter @frontend-forge/server project:debug -- \
 
 ## API
 请求体支持两种形式：
-- `/page/code` 接受 `pageSchema` 或直接传 schema
-- `/project/*` 接受 `manifest` 或直接传 manifest
-- `/scene/*` 接受 `scene` 或直接传 scene
+- `/api/page/code` 接受 `pageSchema` 或直接传 schema
+- `/api/project/*` 接受 `manifest` 或直接传 manifest
 
 JSON 接口成功响应包含 `ok: true`，失败为 `ok: false` 且带 `error` 信息。`*.tar.gz` 接口成功时返回二进制内容。
 
-### `POST /build`
+### `POST /api/build`
 ```json
 {
   "files": [{ "path": "src/index.tsx", "content": "..." }],
@@ -115,7 +108,7 @@ JSON 接口成功响应包含 `ok: true`，失败为 `ok: false` 且带 `error` 
 
 示例：
 ```bash
-curl -X POST http://localhost:3000/build \
+curl -X POST http://localhost:3000/api/build \
   -H 'Content-Type: application/json' \
   --data-raw '{
     "entry": "src/index.tsx",
@@ -128,7 +121,7 @@ curl -X POST http://localhost:3000/build \
   }'
 ```
 
-### `POST /page/code`
+### `POST /api/page/code`
 ```json
 {
   "pageSchema": { "meta": { "id": "page-1" }, "root": { "id": "root", "type": "Layout" }, "context": {} }
@@ -140,7 +133,7 @@ curl -X POST http://localhost:3000/build \
 { "ok": true, "code": "export default function Page() { ... }" }
 ```
 
-### `POST /project/files`
+### `POST /api/project/files`
 ```json
 {
   "manifest": { "version": "1.0", "name": "demo", "routes": [], "menus": [], "locales": [], "pages": [] }
@@ -152,63 +145,24 @@ curl -X POST http://localhost:3000/build \
 { "ok": true, "files": [{ "path": "src/index.ts", "content": "..." }] }
 ```
 
-### `POST /project/files.tar.gz`
-- 请求体同 `/project/files`
+### `POST /api/project/files.tar.gz`
+- 请求体同 `/api/project/files`
 - 响应为 `tar.gz` 二进制内容（`Content-Type: application/gzip`）
 
 ### `POST /api/project/build`
-- 请求体同 `/project/files`
+- 请求体同 `/api/project/files`
 - 返回编译后的 `VirtualFile[]`（SystemJS JS + 可选 CSS）
 
 ### `POST /api/project/build.tar.gz`
-- 请求体同 `/project/files`
+- 请求体同 `/api/project/files`
 - 响应为编译产物的 `tar.gz`
 
-### `POST /scene/project/files`
-```json
-{
-  "scene": {
-    "type": "crdTable",
-    "config": { "meta": { "id": "crd-table", "name": "CRD Table", "path": "/crd-table" }, "crd": {}, "scope": "namespace", "page": { "id": "page-id", "title": "Table", "authKey": "jobs" }, "columns": [] }
-  }
-}
-```
-
-响应（成功）：
-```json
-{ "ok": true, "files": [{ "path": "src/index.ts", "content": "..." }] }
-```
-
-### `POST /scene/project/files.tar.gz`
-- 请求体同 `/scene/project/files`
-- 响应为 `tar.gz` 二进制内容（`Content-Type: application/gzip`）
-
-### `POST /scene/project/build`
-- 请求体同 `/scene/project/files`
-- 返回编译后的 `VirtualFile[]`
-
-### `POST /scene/project/build.tar.gz`
-- 请求体同 `/scene/project/files`
-- 响应为编译产物的 `tar.gz`
-
-### `POST /k8s/jsbundles`
+### `POST /api/k8s/jsbundles`
 请求体：
 ```json
 {
   "params": { "name": "demo-frontend-js-bundle", "extensionName": "devops", "namespace": "kubesphere-system", "cluster": "host" },
   "manifest": { "version": "1.0", "name": "demo", "routes": [], "menus": [], "locales": [], "pages": [] }
-}
-```
-
-### `POST /k8s/jsbundles/scene`
-请求体：
-```json
-{
-  "params": { "name": "demo-frontend-js-bundle", "extensionName": "devops", "namespace": "kubesphere-system", "cluster": "host" },
-  "scene": {
-    "type": "crdTable",
-    "config": { "meta": { "id": "crd-table", "name": "CRD Table", "path": "/crd-table" }, "crd": {}, "scope": "namespace", "page": { "id": "page-id", "title": "Table", "authKey": "jobs" }, "columns": [] }
-  }
 }
 ```
 
@@ -221,33 +175,6 @@ curl -X POST http://localhost:3000/build \
 - 可选 `params.namespace`：如果提供，则写入 `metadata.annotations["meta.helm.sh/release-namespace"]`（不写入 `metadata.namespace`）。
 - 可选 `params.cluster`：如果提供，则请求路径会在前面加上 `/clusters/{cluster}`（例如 `.../clusters/{cluster}/apis/extensions.kubesphere.io/v1alpha1/...`）。
 - 会把请求中的 `manifest` 以 JSON 字符串形式写入 `metadata.annotations["frontend-forge.io/manifest"]`。
-
-### `GET /kapis/frontend-forge.io/v1alpha1/frontendintegrations`
-查询参数（可选）：
-- `enabled`: `true|false`
-- `type`: `crd|iframe`
-- `name`: 前端集成名称
-
-说明：
-- 实际数据存放在 `JSBundle`，服务通过 `/kapis/extensions.kubesphere.io/v1alpha1/jsbundles` 读写。
-- 会在 `metadata.labels` 写入筛选字段：
-  - `frontend-forge.io/resource=frontendintegration`
-  - `frontend-forge.io/enabled=true|false`
-  - `frontend-forge.io/type=crd|iframe`
-  - `frontend-forge.io/name=<name>`
-- 真实 CR 内容会写入 `metadata.annotations["frontend-forge.io/frontendintegration"]`。
-
-### `POST /kapis/frontend-forge.io/v1alpha1/frontendintegrations`
-请求体为 `FrontendIntegration` CR（JSON），服务会创建对应 `JSBundle`。
-
-### `GET /kapis/frontend-forge.io/v1alpha1/frontendintegrations/:name`
-读取单个 `FrontendIntegration`。
-
-### `PUT /kapis/frontend-forge.io/v1alpha1/frontendintegrations/:name`
-更新单个 `FrontendIntegration`，要求请求体 `metadata.name` 与路径一致。
-
-### `DELETE /kapis/frontend-forge.io/v1alpha1/frontendintegrations/:name`
-删除单个 `FrontendIntegration`。
 
 ## 环境变量
 - `PORT`：HTTP 端口，默认 3000
@@ -281,7 +208,7 @@ docker run --rm -p 3000:3000 \
 生产部署建议：限制 CPU/内存、设置 `--pids-limit`，并将容器 rootfs 设为只读，挂载 tmpfs 至 `/tmp` 以获得更好的隔离。
 
 ## 示例与验证
-- `apps/server/examples/build.request.json`：`/build` 请求示例
-- `apps/server/examples/page.schema.json`：`/page/code` 请求示例
-- `apps/server/examples/manifest.test.json`：`/project/*` 请求示例
+- `apps/server/examples/build.request.json`：`/api/build` 请求示例
+- `apps/server/examples/page.schema.json`：`/api/page/code` 请求示例
+- `apps/server/examples/manifest.test.json`：`/api/project/*` 请求示例
 - `apps/server/test.sh`：端到端接口验证脚本

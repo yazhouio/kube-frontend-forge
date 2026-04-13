@@ -173,8 +173,6 @@ const manifest: ExtensionManifest = {
               titleI18nKey: "PROJECT_GENERATOR.CRD_NOT_FOUND_TITLE",
               descriptionI18nKey:
                 "PROJECT_GENERATOR.CRD_NOT_FOUND_DESCRIPTION",
-              command:
-                "kubectl label crd servicemonitors.monitoring.coreos.com kubesphere.io/resource-served=true",
             },
             IS_LOADING: {
               type: "binding",
@@ -283,8 +281,6 @@ const manifest: ExtensionManifest = {
               titleI18nKey: "PROJECT_GENERATOR.CRD_NOT_FOUND_TITLE",
               descriptionI18nKey:
                 "PROJECT_GENERATOR.CRD_NOT_FOUND_DESCRIPTION",
-              command:
-                "kubectl label crd servicemonitors.monitoring.coreos.com kubesphere.io/resource-served=true",
             },
             IS_LOADING: {
               type: "binding",

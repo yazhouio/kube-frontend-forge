@@ -117,6 +117,18 @@ export const CrdPageStateDataSource: DataSourceDefinition = {
         depends: [],
       },
       {
+        id: "fallbackCommandDecl",
+        scope: StatementScope.ModuleDecl,
+        code: `const __crdTableFallbackCommand =
+  "kubectl label crd " +
+  (%%CRD_CONFIG%%).plural +
+  "." +
+  (%%CRD_CONFIG%%).group +
+  " kubesphere.io/resource-served=true";`,
+        output: [],
+        depends: [],
+      },
+      {
         id: "hookDecl",
         scope: StatementScope.ModuleDecl,
         code: `const %%HOOK_NAME%% = (columns, storeOptions = undefined) => {
@@ -152,14 +164,7 @@ export const CrdPageStateDataSource: DataSourceDefinition = {
   };
 
   const storeParams = { ...params, namespace };
-  const resolvedOptions =
-    storeOptions &&
-    Object.prototype.hasOwnProperty.call(storeOptions, "enabled")
-      ? storeOptions
-      : {
-          ...(storeOptions || {}),
-          enabled: scope !== "namespace" || Boolean(namespace),
-        };
+  const resolvedOptions = storeOptions ?? {};
 
   const store = useStore(
     {
@@ -188,6 +193,7 @@ export const CrdPageStateDataSource: DataSourceDefinition = {
     meta: {
       inputPaths: {
         storeDecl: ["CRD_CONFIG"],
+        fallbackCommandDecl: ["CRD_CONFIG"],
         hookDecl: ["HOOK_NAME", "PAGE_ID", "SCOPE"],
       },
     },
@@ -235,6 +241,18 @@ export const WorkspaceCrdPageStateDataSource: DataSourceDefinition = {
         scope: StatementScope.ModuleDecl,
         code: "const useStore = getCrdStore(%%CRD_CONFIG%%);",
         output: ["useStore"],
+        depends: [],
+      },
+      {
+        id: "fallbackCommandDecl",
+        scope: StatementScope.ModuleDecl,
+        code: `const __crdTableFallbackCommand =
+  "kubectl label crd " +
+  (%%CRD_CONFIG%%).plural +
+  "." +
+  (%%CRD_CONFIG%%).group +
+  " kubesphere.io/resource-served=true";`,
+        output: [],
         depends: [],
       },
       {
@@ -302,6 +320,7 @@ export const WorkspaceCrdPageStateDataSource: DataSourceDefinition = {
     meta: {
       inputPaths: {
         storeDecl: ["CRD_CONFIG"],
+        fallbackCommandDecl: ["CRD_CONFIG"],
         hookDecl: ["HOOK_NAME", "PAGE_ID"],
       },
     },

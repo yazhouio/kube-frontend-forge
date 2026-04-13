@@ -89,6 +89,10 @@ export const CrdTableNode: NodeDefinition = {
       ...CRDTable404Fallback,
       props: {
         ...(CRDTable404Fallback.props || {}),
+        command:
+          typeof __crdTableFallbackCommand === "string"
+            ? __crdTableFallbackCommand
+            : undefined,
         ...(%%NOT_FOUND_EMPTY_PROPS%% || {}),
       },
     },

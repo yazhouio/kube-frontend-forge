@@ -1,6 +1,6 @@
 import { Card, Center, Checkbox, notify } from "@kubed/components";
 import { Pen, Trash } from "@kubed/icons";
-import { Row, RowData, Table } from "@tanstack/react-table";
+import { Row, Table } from "@tanstack/react-table";
 import { get } from "es-toolkit/compat";
 import * as React from "react";
 import { useModalAction, wrapperComponentModal } from "../../hooks";
@@ -13,16 +13,6 @@ import {
 } from "./fallbacks";
 import { PageContainer, PageLayout, PageTitle } from "./index.styles";
 import { YamlModal } from "./YamlModal";
-
-declare module "@tanstack/react-table" {
-  interface ColumnMeta<TData extends RowData, TValue> {
-    renderCell?: {
-      type: string;
-      path: string;
-      payload: { link: string } | Record<string, any>;
-    };
-  }
-}
 
 export const defaultCheckboxColumn = {
   id: "_selector",

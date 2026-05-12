@@ -1,3 +1,11 @@
 packages:
   - apps/*
   - packages/*
+autoInstallPeers: false
+verifyDepsBeforeRun: false
+allowBuilds:
+  '@parcel/watcher': true
+  '@swc/core': true
+  core-js: true
+  esbuild: true
+  protobufjs: true

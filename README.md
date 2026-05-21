@@ -29,7 +29,7 @@ KubeSphere v4 插件构建服务与低代码构建链路。接收 TS/TSX/CSS 源
 pnpm install
 
 # vendor 依赖（server 构建时需要）
-pnpm --filter @frontend-forge/vendor deploy --prod apps/server/vendor
+pnpm --config.inject-workspace-packages=true --filter @frontend-forge/vendor deploy --prod apps/server/vendor
 
 # 本地开发（热重载）
 pnpm --filter @frontend-forge/server dev

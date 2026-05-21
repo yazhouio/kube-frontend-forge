@@ -52,6 +52,14 @@ export function App() {
             Cluster crd table
           </NavLink>
           <NavLink
+            to="/table-render-rules"
+            className={({ isActive }) =>
+              `nav-link${isActive ? " is-active" : ""}`
+            }
+          >
+            Table render rules
+          </NavLink>
+          <NavLink
             to="/workspaces/system-workspace/table"
             className={({ isActive }) =>
               `nav-link${isActive ? " is-active" : ""}`

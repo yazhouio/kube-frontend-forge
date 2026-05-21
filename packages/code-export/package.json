@@ -19,7 +19,7 @@
     "build": "pnpm run clean && tsc -p tsconfig.json",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "pnpm@11.1.0",
   "dependencies": {
     "@swc/core": "^1.9.2",
     "@tailwindcss/cli": "^4.1.18",

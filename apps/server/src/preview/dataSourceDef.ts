@@ -42,12 +42,24 @@ export const CrdColumnsDataSource: DataSourceDefinition = {
   const columns = useMemo(
     () =>
       columnsConfig.map((column) => {
-        const { key, title, render, ...rest } = column;
+        const {
+          key,
+          title,
+          render,
+          path,
+          valueType,
+          displayType,
+          payload,
+          emptyText,
+          ...rest
+        } = column;
+        const renderConfig =
+          render ?? { path, valueType, displayType, payload, emptyText };
         return {
           accessorKey: key,
           header: t(title),
           cell: (info) => (
-            <TableTd meta={render} original={info.row.original} />
+            <TableTd meta={renderConfig} original={info.row.original} />
           ),
           ...rest,
         };

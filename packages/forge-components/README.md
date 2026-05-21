@@ -45,6 +45,33 @@ export function PageWithRuntime() {
 For react-router v6 integration, use the `withPageRuntime` helper from
 the project generator scaffold.
 
+## Table cell render config
+
+`TableTd` accepts JSON-friendly render rules through `meta`. Existing
+`type/path/payload` rules are still supported, and new configs can use
+`path`, `valueType`, `displayType`, `payload`, and `emptyText`.
+
+```tsx
+<TableTd
+  original={row}
+  meta={{
+    path: "status.phase",
+    valueType: "enum",
+    displayType: "enum",
+    payload: {
+      map: {
+        Running: "Running",
+        Failed: "Failed",
+      },
+    },
+  }}
+/>
+```
+
+Built-in display types are `text`, `date`, `enum`, `link`, `number`,
+`boolean`, `json`, and `list`. Link rules support row-data templates such as
+`/projects/{metadata.namespace}/{metadata.name}`.
+
 ## Notes
 
 - The build outputs ESM and keeps `react`/`react-dom` as peer dependencies.

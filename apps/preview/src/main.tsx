@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "react-query";
 import { init } from "@frontend-forge/forge-components";
 import { App, HomePanels } from "./App";
 import { TablePreview } from "./TablePreview";
+import { TableRenderRulePreview } from "./TableRenderRulePreview";
 import { WorkspaceTablePreview } from "./WorkspaceTablePreview";
 import "./index.css";
 
@@ -39,6 +40,10 @@ const router = createBrowserRouter([
       {
         path: "/cluster/:cluster/table",
         element: <TablePreview />,
+      },
+      {
+        path: "/table-render-rules",
+        element: <TableRenderRulePreview />,
       },
       {
         path: "/workspaces/:workspace/table",

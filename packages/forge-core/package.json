@@ -24,7 +24,7 @@
     "build": "pnpm run clean && tsc -p tsconfig.json",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "pnpm@11.1.0",
   "dependencies": {
     "@frontend-forge/code-export": "workspace:*",
     "@frontend-forge/component-generator": "workspace:*",

@@ -32,8 +32,8 @@ COPY --from=deps /app/packages/project-generator/node_modules ./packages/project
 
 RUN pnpm --filter @frontend-forge/forge-components build \
  && pnpm -r --filter @frontend-forge/server... run build
-RUN pnpm --filter @frontend-forge/server deploy --prod /app/server
-RUN pnpm --filter @frontend-forge/vendor deploy --prod /app/server/vendor
+RUN pnpm --config.inject-workspace-packages=true --filter @frontend-forge/server deploy --prod /app/server
+RUN pnpm --config.inject-workspace-packages=true --filter @frontend-forge/vendor deploy --prod /app/server/vendor
 RUN find /app/server -path '*/node_modules/*' -type d \( \
     -name test -o -name tests -o -name __tests__ -o -name docs -o -name doc -o -name examples -o -name example -o -name benchmark -o -name benchmarks \
   \) -prune -exec rm -rf '{}' + \

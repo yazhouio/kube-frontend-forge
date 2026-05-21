@@ -77,4 +77,4 @@ type BaseTableComponent = <TData extends { uid: string }>(
 
 export const BaseTable = React.forwardRef(Table) as BaseTableComponent;
 
-export { TableTd } from "./TableTd";
+export * from "./TableTd";

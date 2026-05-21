@@ -2,6 +2,10 @@ name: Docker Image
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
+      - dev
   release:
     types:
       - published
@@ -77,6 +81,55 @@ jobs:
           tags: |
             type=raw,value=${{ github.event.release.tag_name }}
             type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  build-branch-image:
+    name: Build and push branch image
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure private npm registry auth
+        run: |
+          if [ -n "${NPM_AUTH_BASE64:-}" ]; then
+            printf '\n//internal-registry.npm.kubesphere.com.cn/:_auth=%s\n' "${NPM_AUTH_BASE64}" >> .npmrc
+          fi
+        env:
+          NPM_AUTH_BASE64: ${{ secrets.NPM_AUTH_BASE64 }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6

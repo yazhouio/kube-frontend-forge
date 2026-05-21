@@ -171,8 +171,13 @@ function getValueByPath(
   return get(original, path);
 }
 
-function isEmptyCellValue(value: unknown): value is null | undefined | "" {
-  return value === null || value === undefined || value === "";
+function isEmptyCellValue(value: unknown): value is null | undefined | "" | [] {
+  return (
+    value === null ||
+    value === undefined ||
+    value === "" ||
+    (Array.isArray(value) && value.length === 0)
+  );
 }
 
 function safeStringify(value: unknown, space?: number) {
@@ -313,11 +318,21 @@ export function TableTdBoolean(props: {
   const normalizedValue =
     typeof value === "string" ? value.toLowerCase() : value;
 
-  if (normalizedValue === true || normalizedValue === "true" || value === 1) {
+  if (
+    normalizedValue === true ||
+    normalizedValue === "true" ||
+    normalizedValue === "1" ||
+    value === 1
+  ) {
     return renderDisplayValue(trueText);
   }
 
-  if (normalizedValue === false || normalizedValue === "false" || value === 0) {
+  if (
+    normalizedValue === false ||
+    normalizedValue === "false" ||
+    normalizedValue === "0" ||
+    value === 0
+  ) {
     return renderDisplayValue(falseText);
   }
 

@@ -4,7 +4,7 @@ Vendored runtime dependencies (React ecosystem helpers, polyfills, etc.) stored 
 
 Install with:
 ```bash
-pnpm --filter @frontend-forge/vendor deploy --prod apps/server/vendor
+pnpm --config.inject-workspace-packages=true --filter @frontend-forge/vendor deploy --prod apps/server/vendor
 ```
 
 Used by the SystemJS build step to locate `node_modules` for externals without pulling them into the generated bundle.

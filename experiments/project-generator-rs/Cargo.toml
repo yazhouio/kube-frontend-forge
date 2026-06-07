@@ -1,0 +1,11 @@
+[package]
+name = "project-generator-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+include_dir = "0.7"
+regex = "1.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+snafu = "0.8"

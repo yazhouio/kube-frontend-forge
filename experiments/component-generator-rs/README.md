@@ -59,13 +59,14 @@ From this directory:
 
 ```bash
 cargo run -- ../../apps/server/examples/page.schema.json
+cargo run -- ../../apps/server/examples/page.schema.json --out SamplePage.tsx
 cargo run --features swc -- ../../apps/server/examples/page.schema.json --backend swc
 cargo test
 cargo test --features swc
 ```
 
 The CLI accepts either a direct page schema or an object with `pageSchema`.
-It uses the Oxc backend by default. Pass `--backend swc` with `--features swc` to run the SWC backend.
+It uses the Oxc backend by default. Pass `--backend swc` with `--features swc` to run the SWC backend. Pass `--out <file>` to write generated TSX to a file instead of stdout. Unknown flags, missing flag values, and extra input paths are rejected instead of being ignored.
 
 The default generator uses Oxc:
 

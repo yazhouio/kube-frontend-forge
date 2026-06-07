@@ -4,7 +4,9 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
-    #[snafu(display("usage: component-generator-rs <page-schema.json> [--backend oxc|swc]"))]
+    #[snafu(display(
+        "usage: component-generator-rs <page-schema.json> [--backend oxc|swc] [--out page.tsx]"
+    ))]
     MissingInputPath,
 
     #[snafu(display("invalid backend `{backend}`; expected `swc` or `oxc`"))]
@@ -13,8 +15,26 @@ pub enum Error {
     #[snafu(display("backend `{backend}` requires cargo feature `{feature}`"))]
     BackendFeatureDisabled { backend: String, feature: String },
 
+    #[snafu(display("missing value for --backend; expected `oxc` or `swc`"))]
+    MissingBackendValue,
+
+    #[snafu(display("missing value for --out"))]
+    MissingOutPath,
+
+    #[snafu(display("unknown argument `{arg}`"))]
+    UnknownArgument { arg: String },
+
+    #[snafu(display("unexpected extra input path `{path}`"))]
+    UnexpectedInputPath { path: String },
+
     #[snafu(display("failed to read {path}"))]
     ReadFile {
+        path: String,
+        source: std::io::Error,
+    },
+
+    #[snafu(display("failed to write {path}"))]
+    WriteFile {
         path: String,
         source: std::io::Error,
     },

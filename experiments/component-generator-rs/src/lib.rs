@@ -1,6 +1,4 @@
 pub mod action_graph;
-#[cfg(feature = "swc")]
-pub mod ast;
 pub mod builtins;
 pub mod code_backend;
 pub mod error;
@@ -9,8 +7,6 @@ pub mod imports;
 pub mod model;
 pub mod names;
 pub mod registry;
-#[cfg(feature = "swc")]
-pub mod rename;
 pub mod value;
 
 #[cfg(feature = "swc")]

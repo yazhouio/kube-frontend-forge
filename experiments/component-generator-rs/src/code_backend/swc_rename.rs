@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use swc_ecma_ast::Ident;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
-use crate::ast::{emit_expr, emit_module, parse_expr, parse_module_items};
+use super::swc_ast::{emit_expr, emit_module, parse_expr, parse_module_items};
 use crate::error::Result;
 
 pub fn rename_module_item_idents(

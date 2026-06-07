@@ -8,98 +8,9 @@ use oxc_ast_visit::VisitMut;
 use oxc_codegen::Codegen;
 use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType};
-use swc_ecma_ast::{ModuleDecl, ModuleItem};
 
-use crate::ast::{emit_module as swc_emit_module, parse_module_items as swc_parse_module_items};
+use super::{JsCodeBackend, SplitModuleItems};
 use crate::error::Result;
-use crate::rename::{
-    rename_expr_idents as swc_rename_expr_idents,
-    rename_module_item_idents as swc_rename_module_item_idents,
-};
-
-#[derive(Default)]
-pub struct SplitModuleItems {
-    pub imports: Vec<String>,
-    pub rest: Vec<String>,
-}
-
-pub trait JsCodeBackend {
-    fn rename_expr_idents(
-        &self,
-        code: &str,
-        replacements: &BTreeMap<String, String>,
-    ) -> Result<String>;
-
-    fn rename_module_item_idents(
-        &self,
-        code: &str,
-        replacements: &BTreeMap<String, String>,
-    ) -> Result<String>;
-
-    fn split_imports(&self, code: &str) -> Result<SplitModuleItems>;
-
-    fn emit_module(
-        &self,
-        imports: &[String],
-        module_items: &[String],
-        export_default: Option<&str>,
-    ) -> Result<String>;
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct SwcCodeBackend;
-
-impl JsCodeBackend for SwcCodeBackend {
-    fn rename_expr_idents(
-        &self,
-        code: &str,
-        replacements: &BTreeMap<String, String>,
-    ) -> Result<String> {
-        swc_rename_expr_idents(code, replacements)
-    }
-
-    fn rename_module_item_idents(
-        &self,
-        code: &str,
-        replacements: &BTreeMap<String, String>,
-    ) -> Result<String> {
-        swc_rename_module_item_idents(code, replacements)
-    }
-
-    fn split_imports(&self, code: &str) -> Result<SplitModuleItems> {
-        let mut split = SplitModuleItems::default();
-        for item in swc_parse_module_items(code)? {
-            let code = swc_emit_module(vec![item.clone()])?.trim().to_owned();
-            if matches!(&item, ModuleItem::ModuleDecl(ModuleDecl::Import(_))) {
-                split.imports.push(code);
-            } else {
-                split.rest.push(code);
-            }
-        }
-        Ok(split)
-    }
-
-    fn emit_module(
-        &self,
-        imports: &[String],
-        module_items: &[String],
-        export_default: Option<&str>,
-    ) -> Result<String> {
-        let mut body = Vec::<ModuleItem>::new();
-        for import in imports {
-            body.extend(swc_parse_module_items(import)?);
-        }
-        for item in module_items {
-            body.extend(swc_parse_module_items(item)?);
-        }
-        if let Some(export_default) = export_default {
-            body.extend(swc_parse_module_items(&format!(
-                "export default {export_default};"
-            ))?);
-        }
-        swc_emit_module(body)
-    }
-}
 
 #[derive(Clone, Copy, Default)]
 pub struct OxcCodeBackend;
@@ -276,7 +187,7 @@ fn format_oxc_errors(errors: &[impl std::fmt::Display], panicked: bool) -> Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{JsCodeBackend, OxcCodeBackend};
+    use crate::code_backend::{JsCodeBackend, OxcCodeBackend};
 
     #[test]
     fn oxc_backend_renames_module_and_expression_identifiers() {

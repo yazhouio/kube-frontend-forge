@@ -4,7 +4,7 @@ use indexmap::{IndexMap, IndexSet};
 
 use crate::action_graph::ActionGraphPlan;
 use crate::builtins::default_registry;
-use crate::code_backend::{JsCodeBackend, SwcCodeBackend};
+use crate::code_backend::{JsCodeBackend, OxcCodeBackend};
 use crate::error::{Error, Result};
 use crate::model::{ComponentNode, DataSourceNode, PageConfig};
 use crate::names::{NameAllocator, sanitize_ident};
@@ -15,25 +15,25 @@ use crate::value::{
     value_to_expr_code_with_context,
 };
 
-pub struct ComponentGenerator<B = SwcCodeBackend> {
+pub struct ComponentGenerator<B = OxcCodeBackend> {
     registry: Registry,
     backend: B,
 }
 
-impl Default for ComponentGenerator<SwcCodeBackend> {
+impl Default for ComponentGenerator<OxcCodeBackend> {
     fn default() -> Self {
         Self {
             registry: default_registry(),
-            backend: SwcCodeBackend,
+            backend: OxcCodeBackend,
         }
     }
 }
 
-impl ComponentGenerator<SwcCodeBackend> {
+impl ComponentGenerator<OxcCodeBackend> {
     pub fn new(registry: Registry) -> Self {
         Self {
             registry,
-            backend: SwcCodeBackend,
+            backend: OxcCodeBackend,
         }
     }
 }
@@ -683,6 +683,32 @@ mod tests {
         TemplateOutput,
     };
 
+    fn compact_code(value: &str) -> String {
+        value.chars().filter(|ch| !ch.is_whitespace()).collect()
+    }
+
+    fn assert_code_contains(code: &str, expected: &str) {
+        if code.contains(expected) {
+            return;
+        }
+        assert!(
+            compact_code(code).contains(&compact_code(expected)),
+            "expected generated code to contain `{expected}`\n\n{code}"
+        );
+    }
+
+    fn assert_code_not_contains(code: &str, unexpected: &str) {
+        assert!(
+            !code.contains(unexpected) && !compact_code(code).contains(&compact_code(unexpected)),
+            "expected generated code not to contain `{unexpected}`\n\n{code}"
+        );
+    }
+
+    fn find_code(code: &str, expected: &str) -> Option<usize> {
+        code.find(expected)
+            .or_else(|| compact_code(code).find(&compact_code(expected)))
+    }
+
     #[test]
     fn generates_basic_page() {
         let raw = serde_json::json!({
@@ -704,13 +730,13 @@ mod tests {
         let code = ComponentGenerator::default()
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains("import { useState } from \"react\";"));
-        assert!(code.contains("function SamplePage"));
-        assert!(code.contains("const [text, setText] = useState(1);"));
-        assert!(code.contains("<div>{\"World\"}</div>"));
-        assert!(code.contains("<div>{\"Hello\"}</div>"));
-        assert!(code.contains("export default SamplePage"));
-        assert!(!code.contains("function TextChild"));
+        assert_code_contains(&code, "import { useState } from \"react\";");
+        assert_code_contains(&code, "function SamplePage");
+        assert_code_contains(&code, "const [text, setText] = useState(1);");
+        assert_code_contains(&code, "<div>{\"World\"}</div>");
+        assert_code_contains(&code, "<div>{\"Hello\"}</div>");
+        assert_code_contains(&code, "export default SamplePage");
+        assert_code_not_contains(&code, "function TextChild");
     }
 
     #[test]
@@ -735,11 +761,11 @@ mod tests {
             ComponentGenerator::with_backend(crate::builtins::default_registry(), OxcCodeBackend)
                 .generate_page_code(&page)
                 .unwrap();
-        assert!(code.contains("import { useState } from \"react\""));
-        assert!(code.contains("function SamplePage"));
-        assert!(code.contains("const [text, setText] = useState(1)"));
-        assert!(code.contains("<div>{\"World\"}</div>"));
-        assert!(code.contains("export default SamplePage"));
+        assert_code_contains(&code, "import { useState } from \"react\"");
+        assert_code_contains(&code, "function SamplePage");
+        assert_code_contains(&code, "const [text, setText] = useState(1)");
+        assert_code_contains(&code, "<div>{\"World\"}</div>");
+        assert_code_contains(&code, "export default SamplePage");
     }
 
     #[test]
@@ -762,8 +788,8 @@ mod tests {
         let code = ComponentGenerator::default()
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains("const [text, setText] = useState(1);"));
-        assert!(code.contains("const [text2, setText2] = useState(2);"));
+        assert_code_contains(&code, "const [text, setText] = useState(1);");
+        assert_code_contains(&code, "const [text2, setText2] = useState(2);");
     }
 
     #[test]
@@ -807,9 +833,9 @@ mod tests {
             .generate_page_code(&page)
             .unwrap();
 
-        assert!(code.contains(r#"const label = "One";"#));
-        assert!(code.contains(r#"const label2 = "Two";"#));
-        assert!(code.contains("<span>{label}</span><span>{label2}</span>"));
+        assert_code_contains(&code, r#"const label = "One";"#);
+        assert_code_contains(&code, r#"const label2 = "Two";"#);
+        assert_code_contains(&code, "<span>{label}</span><span>{label2}</span>");
     }
 
     #[test]
@@ -856,7 +882,10 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.find("const a = 1;").unwrap() < code.find("const b = a + 1;").unwrap());
+        assert!(
+            find_code(&code, "const a = 1;").unwrap()
+                < find_code(&code, "const b = a + 1;").unwrap()
+        );
     }
 
     #[test]
@@ -899,9 +928,9 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        let helper_index = code.find("const helper =").unwrap();
-        let function_index = code.find("function SamplePage").unwrap();
-        let value_index = code.find("const value = helper();").unwrap();
+        let helper_index = find_code(&code, "const helper =").unwrap();
+        let function_index = find_code(&code, "function SamplePage").unwrap();
+        let value_index = find_code(&code, "const value = helper();").unwrap();
 
         assert!(helper_index < function_index);
         assert!(function_index < value_index);
@@ -940,12 +969,15 @@ mod tests {
             .generate_page_code(&page)
             .unwrap();
 
-        assert!(code.contains(r#"import { useMemo, useState } from "react";"#));
+        assert_code_contains(&code, r#"import { useMemo, useState } from "react";"#);
         assert_eq!(code.matches(r#"from "react""#).count(), 1);
-        assert!(code.find("import {").unwrap() < code.find("const moduleValue = 1;").unwrap());
         assert!(
-            code.find("const moduleValue = 1;").unwrap()
-                < code.find("function SamplePage").unwrap()
+            find_code(&code, "import {").unwrap()
+                < find_code(&code, "const moduleValue = 1;").unwrap()
+        );
+        assert!(
+            find_code(&code, "const moduleValue = 1;").unwrap()
+                < find_code(&code, "function SamplePage").unwrap()
         );
     }
 
@@ -1030,10 +1062,10 @@ mod tests {
         let code = ComponentGenerator::default()
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains("const useCols = ()=>"));
-        assert!(code.contains("const { columns: colsColumns } = useCols();"));
-        assert!(!code.contains("useUnused"));
-        assert!(code.contains(r#"(colsColumns?.[0]?.title ?? "Unknown")"#));
+        assert_code_contains(&code, "const useCols = ()=>");
+        assert_code_contains(&code, "const { columns: colsColumns } = useCols();");
+        assert_code_not_contains(&code, "useUnused");
+        assert_code_contains(&code, r#"colsColumns?.[0]?.title ?? "Unknown""#);
     }
 
     #[test]
@@ -1076,9 +1108,12 @@ mod tests {
         let code = ComponentGenerator::default()
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains("const useCustomColumns = ()=>"));
-        assert!(code.contains("const { columns: colsColumns } = useCustomColumns();"));
-        assert!(!code.contains("const \"useCustomColumns\""));
+        assert_code_contains(&code, "const useCustomColumns = ()=>");
+        assert_code_contains(
+            &code,
+            "const { columns: colsColumns } = useCustomColumns();",
+        );
+        assert_code_not_contains(&code, "const \"useCustomColumns\"");
     }
 
     #[test]
@@ -1150,17 +1185,16 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        let import_index = code
-            .find(r#"import { useMemo, useState } from "react";"#)
-            .unwrap();
-        let module_index = code.find("const dsModuleValue = 1;").unwrap();
-        let function_index = code.find("function SamplePage").unwrap();
-        let local_index = code.find("const dsLocal = dsModuleValue;").unwrap();
+        let import_index =
+            find_code(&code, r#"import { useMemo, useState } from "react";"#).unwrap();
+        let module_index = find_code(&code, "const dsModuleValue = 1;").unwrap();
+        let function_index = find_code(&code, "function SamplePage").unwrap();
+        let local_index = find_code(&code, "const dsLocal = dsModuleValue;").unwrap();
 
         assert!(import_index < module_index);
         assert!(module_index < function_index);
         assert!(function_index < local_index);
-        assert!(code.contains("const { data: scopedData } = useScoped();"));
+        assert_code_contains(&code, "const { data: scopedData } = useScoped();");
     }
 
     #[test]
@@ -1217,15 +1251,16 @@ mod tests {
         let code = ComponentGenerator::default()
             .generate_page_code(&page)
             .unwrap();
-        let rows_pos = code.find("useRows();").unwrap();
-        let cols_pos = code.find("useCols((rowsData ?? undefined));").unwrap();
+        let rows_pos = find_code(&code, "useRows();").unwrap();
+        let cols_pos = find_code(&code, "useCols(rowsData ?? undefined);").unwrap();
         assert!(rows_pos < cols_pos);
-        assert!(code.contains("const useStore = getCrdStore({"));
-        assert!(code.contains(r#"const pageId = "rows";"#));
-        assert!(code.contains(r#"const scope = "cluster";"#));
-        assert!(code.contains("const { data: rowsData } = useRows();"));
-        assert!(
-            code.contains("const { columns: colsColumns } = useCols((rowsData ?? undefined));")
+        assert_code_contains(&code, "const useStore = getCrdStore({");
+        assert_code_contains(&code, r#"const pageId = "rows";"#);
+        assert_code_contains(&code, r#"const scope = "cluster";"#);
+        assert_code_contains(&code, "const { data: rowsData } = useRows();");
+        assert_code_contains(
+            &code,
+            "const { columns: colsColumns } = useCols(rowsData ?? undefined);",
         );
     }
 
@@ -1287,10 +1322,10 @@ mod tests {
         let code = ComponentGenerator::default()
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains("const useStore = getCrdStore({"));
-        assert!(code.contains("const useStore2 = getCrdStore({"));
-        assert!(code.contains("const store = useStore({"));
-        assert!(code.contains("const store = useStore2({"));
+        assert_code_contains(&code, "const useStore = getCrdStore({");
+        assert_code_contains(&code, "const useStore2 = getCrdStore({");
+        assert_code_contains(&code, "const store = useStore({");
+        assert_code_contains(&code, "const store = useStore2({");
     }
 
     #[test]
@@ -1337,12 +1372,12 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains(r#"import { create } from "zustand";"#));
-        assert!(code.contains(r#"import { get, set } from "es-toolkit/compat";"#));
-        assert!(code.contains("const useFormGraphStore = create"));
-        assert!(code.contains(r#"dispatchActionFormGraph("SUBMIT""#));
-        assert!(code.contains("const dispatchActionFormGraph = (actionId, event)=>"));
-        assert!(code.contains("<button onClick={(event)=>"));
+        assert_code_contains(&code, r#"import { create } from "zustand";"#);
+        assert_code_contains(&code, r#"import { get, set } from "es-toolkit/compat";"#);
+        assert_code_contains(&code, "const useFormGraphStore = create");
+        assert_code_contains(&code, r#"dispatchActionFormGraph("SUBMIT""#);
+        assert_code_contains(&code, "const dispatchActionFormGraph = (actionId, event)=>");
+        assert_code_contains(&code, "<button onClick={(event)=>");
     }
 
     #[test]
@@ -1389,9 +1424,9 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains("const useFormGraphStore = create"));
-        assert!(code.contains("const actionFormGraphContext = useFormGraphStore"));
-        assert!(code.contains(r#"(actionFormGraphContext?.name ?? "Unknown")"#));
+        assert_code_contains(&code, "const useFormGraphStore = create");
+        assert_code_contains(&code, "const actionFormGraphContext = useFormGraphStore");
+        assert_code_contains(&code, r#"actionFormGraphContext?.name ?? "Unknown""#);
     }
 
     #[test]
@@ -1441,9 +1476,9 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains("<button onClick={()=>explicitSubmit()}"));
-        assert!(!code.contains(r#"dispatchActionFormGraph("SUBMIT", { event })"#));
-        assert!(code.contains("const dispatchActionFormGraph = (actionId, event)=>"));
+        assert_code_contains(&code, "<button onClick={()=>explicitSubmit()}");
+        assert_code_not_contains(&code, r#"dispatchActionFormGraph("SUBMIT", { event })"#);
+        assert_code_contains(&code, "const dispatchActionFormGraph = (actionId, event)=>");
     }
 
     #[test]
@@ -1595,9 +1630,9 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains(r#"<CardPanel TITLE={"Hello"} COUNT={3}/>"#));
-        assert!(code.contains("function CardPanel(props)"));
-        assert!(code.contains("<h3>{props.TITLE}</h3>"));
+        assert_code_contains(&code, r#"<CardPanel TITLE={"Hello"} COUNT={3}/>"#);
+        assert_code_contains(&code, "function CardPanel(props)");
+        assert_code_contains(&code, "<h3>{props.TITLE}</h3>");
     }
 
     #[test]
@@ -1661,8 +1696,8 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains("const { data: draftData } = useDraft();"));
-        assert!(code.contains("<CardPanel TITLE={(draftData?.title ?? undefined)}/>"));
+        assert_code_contains(&code, "const { data: draftData } = useDraft();");
+        assert_code_contains(&code, "<CardPanel TITLE={draftData?.title ?? undefined}/>");
     }
 
     #[test]
@@ -1694,13 +1729,12 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        assert!(
-            code.contains(
-                r#"import { useRuntimeContext } from "@frontend-forge/forge-components";"#
-            )
+        assert_code_contains(
+            &code,
+            r#"import { useRuntimeContext } from "@frontend-forge/forge-components";"#,
         );
-        assert!(code.contains("const __runtime__ = useRuntimeContext();"));
-        assert!(code.contains("<span>{__runtime__?.route?.params?.name}</span>"));
+        assert_code_contains(&code, "const __runtime__ = useRuntimeContext();");
+        assert_code_contains(&code, "<span>{__runtime__?.route?.params?.name}</span>");
     }
 
     #[test]
@@ -1755,9 +1789,9 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains("const { mutate: rowsMutate } = useRows();"));
-        assert!(code.contains(r#""rows": rowsMutate"#));
-        assert!(code.contains(r#"result = callActionFormGraphDataSource("rows""#));
+        assert_code_contains(&code, "const { mutate: rowsMutate } = useRows();");
+        assert_code_contains(&code, r#""rows": rowsMutate"#);
+        assert_code_contains(&code, r#"result = callActionFormGraphDataSource("rows""#);
     }
 
     #[test]
@@ -1815,16 +1849,19 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains(r#"import useSWR from "swr";"#));
-        assert!(code.contains("const fetchCreateUser = (url)=>"));
-        assert!(code.contains("const useCreateUser = (options = {})=>"));
-        assert!(code.contains("false ? \"/api/users\" : null"));
-        assert!(code.contains("fetchCreateUser,"));
-        assert!(code.contains("const { mutate: createUserMutate } = useCreateUser();"));
-        assert!(code.contains(r#""create-user": "request""#));
-        assert!(code.contains(r#"const url = "/api/users";"#));
-        assert!(code.contains(r#"const method = ("POST" || "GET").toUpperCase();"#));
-        assert!(code.contains("return mutate(effect, {"));
+        assert_code_contains(&code, r#"import useSWR from "swr";"#);
+        assert_code_contains(&code, "const fetchCreateUser = (url)=>");
+        assert_code_contains(&code, "const useCreateUser = (options = {})=>");
+        assert_code_contains(&code, "false ? \"/api/users\" : null");
+        assert_code_contains(&code, "fetchCreateUser,");
+        assert_code_contains(
+            &code,
+            "const { mutate: createUserMutate } = useCreateUser();",
+        );
+        assert_code_contains(&code, r#""create-user": "request""#);
+        assert_code_contains(&code, r#"const url = "/api/users";"#);
+        assert_code_contains(&code, r#"const method = ("POST" || "GET").toUpperCase();"#);
+        assert_code_contains(&code, "return mutate(effect, {");
     }
 
     #[test]
@@ -1879,11 +1916,11 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        assert!(code.contains("const useDraft = ()=>"));
-        assert!(code.contains("const { mutate: draftMutate } = useDraft();"));
-        assert!(code.contains(r#""draft": "set""#));
-        assert!(code.contains(r#""draft": (payload, env)=>payload"#));
-        assert!(code.contains(r#"if (mode === "set" && mutate)"#));
+        assert_code_contains(&code, "const useDraft = ()=>");
+        assert_code_contains(&code, "const { mutate: draftMutate } = useDraft();");
+        assert_code_contains(&code, r#""draft": "set""#);
+        assert_code_contains(&code, r#""draft": (payload, env)=>payload"#);
+        assert_code_contains(&code, r#"if (mode === "set" && mutate)"#);
     }
 
     #[test]
@@ -1929,13 +1966,12 @@ mod tests {
         let code = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap();
-        assert!(
-            code.contains(
-                r#"import { useRuntimeContext } from "@frontend-forge/forge-components";"#
-            )
+        assert_code_contains(
+            &code,
+            r#"import { useRuntimeContext } from "@frontend-forge/forge-components";"#,
         );
-        assert!(code.contains("const __runtime__ = useRuntimeContext();"));
-        assert!(code.contains("__runtime__.navigation.navigate"));
+        assert_code_contains(&code, "const __runtime__ = useRuntimeContext();");
+        assert_code_contains(&code, "__runtime__.navigation.navigate");
     }
 
     #[test]
@@ -1969,13 +2005,12 @@ mod tests {
         let code = ComponentGenerator::default()
             .generate_page_code(&page)
             .unwrap();
-        assert!(
-            code.contains(
-                r#"import { useRuntimeContext } from "@frontend-forge/forge-components";"#
-            )
+        assert_code_contains(
+            &code,
+            r#"import { useRuntimeContext } from "@frontend-forge/forge-components";"#,
         );
-        assert!(code.contains("const __runtime__ = useRuntimeContext();"));
-        assert!(code.contains(r#"(__runtime__?.route?.params?.name ?? "Unknown")"#));
+        assert_code_contains(&code, "const __runtime__ = useRuntimeContext();");
+        assert_code_contains(&code, r#"__runtime__?.route?.params?.name ?? "Unknown""#);
     }
 
     #[test]
@@ -2026,12 +2061,12 @@ mod tests {
             .generate_page_code(&page)
             .unwrap();
 
-        let runtime_pos = code
-            .find("const __runtime__ = useRuntimeContext();")
-            .unwrap();
-        let cols_pos = code
-            .find("useCols((__runtime__?.route?.params?.namespace ?? undefined));")
-            .unwrap();
+        let runtime_pos = find_code(&code, "const __runtime__ = useRuntimeContext();").unwrap();
+        let cols_pos = find_code(
+            &code,
+            "useCols(__runtime__?.route?.params?.namespace ?? undefined);",
+        )
+        .unwrap();
         assert!(runtime_pos < cols_pos);
     }
 }

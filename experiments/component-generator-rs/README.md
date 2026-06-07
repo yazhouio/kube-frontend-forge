@@ -2,7 +2,7 @@
 
 Experimental Rust rewrite of `packages/component-generator`.
 
-This is intentionally isolated from the current TypeScript packages. The goal is to validate the Rust/SWC shape before wiring it into `forge-core` or the server.
+This is intentionally isolated from the current TypeScript packages. The goal is to validate the Rust generator and parser/backend shape before wiring it into `forge-core` or the server.
 
 ## Current Scope
 
@@ -10,8 +10,8 @@ This is intentionally isolated from the current TypeScript packages. The goal is
 - Registers built-in node/data source definitions at process startup.
 - Keeps node definitions in a `NodeSource` structure that mirrors the TypeScript `NodeDefinition` shape: `id`, `schema.templateInputs`, `generateCode.imports`, `generateCode.stats`, `generateCode.jsx`, and `generateCode.meta.inputPaths`.
 - Keeps the generator IR backend-neutral: node/data source templates render to string-based fragments, while AST operations are hidden behind `JsCodeBackend`.
-- Ships a default SWC-backed `JsCodeBackend` for parsing snippets, renaming identifiers, extracting imports, validating module items, and emitting TSX.
-- Provides an Oxc-backed `JsCodeBackend` with the same interface. The generator IR does not expose SWC or Oxc AST types.
+- Ships a default Oxc-backed `JsCodeBackend` for parsing snippets, renaming identifiers, extracting imports, validating module items, and emitting TSX.
+- Provides an optional SWC-backed `JsCodeBackend` behind the `swc` Cargo feature. The generator IR does not expose SWC or Oxc AST types.
 - Uses `snafu` for structured errors.
 - Emits TSX code as a string.
 - Merges common namespace/named imports structurally while still allowing `NodeSource.generateCode.imports` to use TypeScript-style import strings.
@@ -59,22 +59,30 @@ From this directory:
 
 ```bash
 cargo run -- ../../apps/server/examples/page.schema.json
-cargo run -- ../../apps/server/examples/page.schema.json --backend oxc
+cargo run --features swc -- ../../apps/server/examples/page.schema.json --backend swc
 cargo test
+cargo test --features swc
 ```
 
 The CLI accepts either a direct page schema or an object with `pageSchema`.
-It uses the SWC backend by default; pass `--backend oxc` to run the Oxc backend.
+It uses the Oxc backend by default. Pass `--backend swc` with `--features swc` to run the SWC backend.
 
-The default generator uses SWC:
+The default generator uses Oxc:
 
 ```rust
 let code = ComponentGenerator::default().generate_page_code(&page)?;
 ```
 
-The Oxc backend can be selected explicitly:
+The Oxc backend can also be selected explicitly:
 
 ```rust
 let generator = ComponentGenerator::with_backend(default_registry(), OxcCodeBackend);
+let code = generator.generate_page_code(&page)?;
+```
+
+The SWC backend is available only when the crate is built with `--features swc`:
+
+```rust
+let generator = ComponentGenerator::with_backend(default_registry(), SwcCodeBackend);
 let code = generator.generate_page_code(&page)?;
 ```

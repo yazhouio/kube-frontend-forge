@@ -1,12 +1,21 @@
+#[cfg(feature = "swc")]
+use component_generator_rs::SwcCodeBackend;
 use component_generator_rs::{
-    ComponentGenerator, Error, OxcCodeBackend, Result, SwcCodeBackend, builtins::default_registry,
+    ComponentGenerator, Error, OxcCodeBackend, Result, builtins::default_registry,
     unwrap_page_schema,
 };
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let path = args.next().ok_or(Error::MissingInputPath)?;
-    let mut backend = "swc".to_owned();
+    let mut backend = "oxc".to_owned();
     while let Some(arg) = args.next() {
         if arg == "--backend" {
             backend = args.next().ok_or(Error::MissingInputPath)?;
@@ -23,11 +32,23 @@ fn main() -> Result<()> {
     })?;
     let page = unwrap_page_schema(value)?;
     let code = match backend.as_str() {
-        "swc" => ComponentGenerator::with_backend(default_registry(), SwcCodeBackend)
-            .generate_page_code(&page)?,
         "oxc" => ComponentGenerator::with_backend(default_registry(), OxcCodeBackend)
             .generate_page_code(&page)?,
-        _ => return Err(Error::InvalidBackend { backend }),
+        #[cfg(feature = "swc")]
+        "swc" => ComponentGenerator::with_backend(default_registry(), SwcCodeBackend)
+            .generate_page_code(&page)?,
+        #[cfg(not(feature = "swc"))]
+        "swc" => {
+            return Err(Error::BackendFeatureDisabled {
+                backend: backend.clone(),
+                feature: "swc".to_owned(),
+            });
+        }
+        _ => {
+            return Err(Error::InvalidBackend {
+                backend: backend.clone(),
+            });
+        }
     };
     println!("{code}");
     Ok(())

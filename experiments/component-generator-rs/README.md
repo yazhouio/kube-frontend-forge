@@ -9,7 +9,9 @@ This is intentionally isolated from the current TypeScript packages. The goal is
 - Reads a `PageConfig` JSON payload.
 - Registers built-in node/data source definitions at process startup.
 - Keeps node definitions in a `NodeSource` structure that mirrors the TypeScript `NodeDefinition` shape: `id`, `schema.templateInputs`, `generateCode.imports`, `generateCode.stats`, `generateCode.jsx`, and `generateCode.meta.inputPaths`.
-- Uses SWC parser/codegen and `swc_ecma_quote::quote!` for generated AST.
+- Keeps the generator IR backend-neutral: node/data source templates render to string-based fragments, while AST operations are hidden behind `JsCodeBackend`.
+- Ships a default SWC-backed `JsCodeBackend` for parsing snippets, renaming identifiers, extracting imports, validating module items, and emitting TSX.
+- Provides an Oxc-backed `JsCodeBackend` with the same interface. The generator IR does not expose SWC or Oxc AST types.
 - Uses `snafu` for structured errors.
 - Emits TSX code as a string.
 - Merges common namespace/named imports structurally while still allowing `NodeSource.generateCode.imports` to use TypeScript-style import strings.
@@ -49,7 +51,7 @@ Registered data sources:
 - `crd-page-state`
 - `workspace-crd-page-state`
 
-Full dependency graph parity with the TypeScript implementation is not complete yet. Render boundary semantics are represented by `meta.scope` nodes becoming functions, while non-scoped children are inlined into the nearest scoped parent with output-name collision handling. Data source and runtime usage is collected from node bindings, data source args, runtime props, and action graph `callDataSource` steps. The current action graph implementation covers the important `static`/`rest` request modes and keeps a mutate fallback for CRD-style data sources. Generated formatting intentionally follows SWC output instead of trying to match Babel formatting exactly.
+Full dependency graph parity with the TypeScript implementation is not complete yet. Render boundary semantics are represented by `meta.scope` nodes becoming functions, while non-scoped children are inlined into the nearest scoped parent with output-name collision handling. Data source and runtime usage is collected from node bindings, data source args, runtime props, and action graph `callDataSource` steps. The current action graph implementation covers the important `static`/`rest` request modes and keeps a mutate fallback for CRD-style data sources. Generated formatting intentionally follows the active `JsCodeBackend` output instead of trying to match Babel formatting exactly.
 
 ## Usage
 
@@ -57,7 +59,22 @@ From this directory:
 
 ```bash
 cargo run -- ../../apps/server/examples/page.schema.json
+cargo run -- ../../apps/server/examples/page.schema.json --backend oxc
 cargo test
 ```
 
 The CLI accepts either a direct page schema or an object with `pageSchema`.
+It uses the SWC backend by default; pass `--backend oxc` to run the Oxc backend.
+
+The default generator uses SWC:
+
+```rust
+let code = ComponentGenerator::default().generate_page_code(&page)?;
+```
+
+The Oxc backend can be selected explicitly:
+
+```rust
+let generator = ComponentGenerator::with_backend(default_registry(), OxcCodeBackend);
+let code = generator.generate_page_code(&page)?;
+```

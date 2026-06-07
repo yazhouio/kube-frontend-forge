@@ -1,7 +1,18 @@
-use component_generator_rs::{ComponentGenerator, Error, Result, unwrap_page_schema};
+use component_generator_rs::{
+    ComponentGenerator, Error, OxcCodeBackend, Result, SwcCodeBackend, builtins::default_registry,
+    unwrap_page_schema,
+};
 
 fn main() -> Result<()> {
-    let path = std::env::args().nth(1).ok_or(Error::MissingInputPath)?;
+    let mut args = std::env::args().skip(1);
+    let path = args.next().ok_or(Error::MissingInputPath)?;
+    let mut backend = "swc".to_owned();
+    while let Some(arg) = args.next() {
+        if arg == "--backend" {
+            backend = args.next().ok_or(Error::MissingInputPath)?;
+        }
+    }
+
     let raw = std::fs::read_to_string(&path).map_err(|source| Error::ReadFile {
         path: path.clone(),
         source,
@@ -11,7 +22,13 @@ fn main() -> Result<()> {
         source,
     })?;
     let page = unwrap_page_schema(value)?;
-    let code = ComponentGenerator::default().generate_page_code(&page)?;
+    let code = match backend.as_str() {
+        "swc" => ComponentGenerator::with_backend(default_registry(), SwcCodeBackend)
+            .generate_page_code(&page)?,
+        "oxc" => ComponentGenerator::with_backend(default_registry(), OxcCodeBackend)
+            .generate_page_code(&page)?,
+        _ => return Err(Error::InvalidBackend { backend }),
+    };
     println!("{code}");
     Ok(())
 }

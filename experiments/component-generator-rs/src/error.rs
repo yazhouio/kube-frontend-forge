@@ -7,6 +7,9 @@ pub enum Error {
     #[snafu(display("usage: component-generator-rs <page-schema.json>"))]
     MissingInputPath,
 
+    #[snafu(display("invalid backend `{backend}`; expected `swc` or `oxc`"))]
+    InvalidBackend { backend: String },
+
     #[snafu(display("failed to read {path}"))]
     ReadFile {
         path: String,

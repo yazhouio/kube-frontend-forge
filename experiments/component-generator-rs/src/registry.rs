@@ -1,15 +1,10 @@
-use std::collections::BTreeMap;
-
 use indexmap::IndexMap;
 use serde_json::Value;
-use swc_ecma_ast::{ModuleDecl, ModuleItem};
 
-use crate::ast::{emit_module, parse_module_items};
 use crate::error::{Error, Result};
 use crate::imports::ImportRegistry;
 use crate::model::{ComponentNode, DataSourceNode};
 use crate::names::{NameAllocator, sanitize_ident};
-use crate::rename::rename_module_item_idents;
 use crate::value::{
     BindingContext, BindingUse, DataSourceCallMode, collect_binding_uses,
     value_to_expr_code_with_context,
@@ -18,7 +13,7 @@ use crate::value::{
 #[derive(Default)]
 pub struct RenderContext {
     pub imports: ImportRegistry,
-    pub module_items: Vec<ModuleItem>,
+    pub module_items: Vec<String>,
     pub bindings: BindingContext,
     pub rendered_data_sources: indexmap::IndexSet<String>,
     pub module_names: NameAllocator,
@@ -474,52 +469,21 @@ impl DataSourceDefinition for DataSourceSource {
             ctx.imports.add_source(import);
         }
 
-        let mut dependency_replacements = BTreeMap::<String, String>::new();
-        let mut local_stats = Vec::new();
+        let mut rendered_stats = Vec::new();
         for stat in order_stat_sources(self.id, &self.generate_code.stats)? {
             let code = self.render_template(stat.code, stat, data_source, ctx)?;
-            let mut replacements = dependency_replacements.clone();
             let mut outputs = Vec::new();
             for output in &stat.output {
                 let actual = self.stat_output_name(stat, output, data_source, ctx)?;
                 outputs.push(actual.clone());
-                if !stat.scope.is_module_scope() {
-                    continue;
-                }
-                if self.input_paths(stat.id).contains(output) {
-                    ctx.module_names.reserve(actual);
-                    continue;
-                }
-                let allocated = ctx.module_names.allocate(&actual, &actual)?;
-                if allocated != actual {
-                    replacements.insert(actual.clone(), allocated.clone());
-                    dependency_replacements.insert(actual, allocated);
-                }
             }
-            let code = rename_module_item_idents(&code, &replacements)?;
-            if stat.scope.is_module_scope() {
-                if stat.scope == StatementScope::ModuleImport {
-                    let mut rest = Vec::new();
-                    for item in parse_module_items(&code)? {
-                        if matches!(&item, ModuleItem::ModuleDecl(ModuleDecl::Import(_))) {
-                            ctx.imports.add_source(emit_module(vec![item])?.trim());
-                        } else {
-                            rest.push(item);
-                        }
-                    }
-                    ctx.module_items.extend(rest);
-                } else {
-                    ctx.module_items.extend(parse_module_items(&code)?);
-                }
-            } else {
-                local_stats.push(RenderedStat {
-                    code,
-                    outputs,
-                    scope: stat.scope,
-                });
-            }
+            rendered_stats.push(RenderedStat {
+                code,
+                outputs,
+                scope: stat.scope,
+            });
         }
-        Ok(local_stats)
+        Ok(rendered_stats)
     }
 }
 

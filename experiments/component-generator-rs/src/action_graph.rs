@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use indexmap::{IndexMap, IndexSet};
 use serde_json::Value;
 
-use crate::ast::parse_module_items;
 use crate::error::{Error, Result};
 use crate::model::{ActionGraphSchema, ActionStep, DataSourceNode};
 use crate::registry::RenderContext;
@@ -156,7 +155,7 @@ impl ActionGraphPlan {
                 })?;
             if !ctx.rendered_action_graph_stores.contains(graph_id) {
                 let store_code = build_store_code(graph, info)?;
-                ctx.module_items.extend(parse_module_items(&store_code)?);
+                ctx.module_items.push(store_code);
                 ctx.rendered_action_graph_stores.insert(graph_id.clone());
             }
             stats.extend(build_function_stats(

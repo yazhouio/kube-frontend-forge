@@ -1,37 +1,46 @@
 use std::collections::BTreeMap;
 
 use indexmap::{IndexMap, IndexSet};
-use swc_ecma_ast::{ModuleDecl, ModuleItem};
 
 use crate::action_graph::ActionGraphPlan;
-use crate::ast::{emit_module, parse_module_items};
 use crate::builtins::default_registry;
+use crate::code_backend::{JsCodeBackend, SwcCodeBackend};
 use crate::error::{Error, Result};
 use crate::model::{ComponentNode, DataSourceNode, PageConfig};
 use crate::names::{NameAllocator, sanitize_ident};
 use crate::registry::{Registry, RenderContext, RenderedStat};
-use crate::rename::{rename_expr_idents, rename_module_item_idents};
 use crate::value::{
     BindingContext, BindingUse, DataSourceBindingInfo, DataSourceCallMode, collect_binding_uses,
     expr_to_code_with_context, pascal_case, resolve_binding_output_var_name,
     value_to_expr_code_with_context,
 };
 
-pub struct ComponentGenerator {
+pub struct ComponentGenerator<B = SwcCodeBackend> {
     registry: Registry,
+    backend: B,
 }
 
-impl Default for ComponentGenerator {
+impl Default for ComponentGenerator<SwcCodeBackend> {
     fn default() -> Self {
         Self {
             registry: default_registry(),
+            backend: SwcCodeBackend,
         }
     }
 }
 
-impl ComponentGenerator {
+impl ComponentGenerator<SwcCodeBackend> {
     pub fn new(registry: Registry) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            backend: SwcCodeBackend,
+        }
+    }
+}
+
+impl<B: JsCodeBackend> ComponentGenerator<B> {
+    pub fn with_backend(registry: Registry, backend: B) -> Self {
+        Self { registry, backend }
     }
 
     pub fn generate_page_code(&self, page: &PageConfig) -> Result<String> {
@@ -66,15 +75,11 @@ impl ComponentGenerator {
             &action_graphs,
         )?;
 
-        let mut body = Vec::<ModuleItem>::new();
-        for import in ctx.imports.emit_sources() {
-            body.extend(parse_module_items(&import)?);
-        }
-        body.extend(ctx.module_items);
-
-        body.extend(parse_module_items(&format!("export default {root_name};"))?);
-
-        emit_module(body)
+        self.backend.emit_module(
+            &ctx.imports.emit_sources(),
+            &ctx.module_items,
+            Some(&root_name),
+        )
     }
 
     fn render_boundary_node(
@@ -117,14 +122,16 @@ impl ComponentGenerator {
         local_render_stats.extend(fragment.stats);
         let (local_stats, jsx_replacements) =
             self.render_local_stats(&local_render_stats, ctx, &binding_uses)?;
-        let jsx = rename_expr_idents(&fragment.jsx, &jsx_replacements)?;
+        let jsx = self
+            .backend
+            .rename_expr_idents(&fragment.jsx, &jsx_replacements)?;
         stats.extend(local_stats);
         let function_code = format!(
             "function {component_name}(props) {{\n{}\nreturn {};\n}}",
             stats.join("\n"),
             jsx
         );
-        ctx.module_items.extend(parse_module_items(&function_code)?);
+        ctx.module_items.push(function_code);
         Ok(component_name)
     }
 
@@ -196,7 +203,11 @@ impl ComponentGenerator {
                     child_jsx.push(jsx);
                 }
                 ChildRender::Inline(mut child_fragment) => {
-                    rename_inline_fragment_outputs(&mut child_fragment, &mut used_names)?;
+                    rename_inline_fragment_outputs(
+                        &mut child_fragment,
+                        &mut used_names,
+                        &self.backend,
+                    )?;
                     stats.extend(child_fragment.stats);
                     binding_uses.extend(child_fragment.binding_uses);
                     action_graph_ids.extend(child_fragment.action_graph_ids);
@@ -292,19 +303,17 @@ impl ComponentGenerator {
                         module_replacements.insert(output.clone(), allocated);
                     }
                 }
-                let code = rename_module_item_idents(&stat.code, &replacements)?;
+                let code = self
+                    .backend
+                    .rename_module_item_idents(&stat.code, &replacements)?;
                 if stat.scope == crate::registry::StatementScope::ModuleImport {
-                    let mut rest = Vec::new();
-                    for item in parse_module_items(&code)? {
-                        if matches!(&item, ModuleItem::ModuleDecl(ModuleDecl::Import(_))) {
-                            ctx.imports.add_source(emit_module(vec![item])?.trim());
-                        } else {
-                            rest.push(item);
-                        }
+                    let split = self.backend.split_imports(&code)?;
+                    for import in split.imports {
+                        ctx.imports.add_source(&import);
                     }
-                    ctx.module_items.extend(rest);
+                    ctx.module_items.extend(split.rest);
                 } else {
-                    ctx.module_items.extend(parse_module_items(&code)?);
+                    ctx.module_items.push(code);
                 }
                 continue;
             }
@@ -316,7 +325,10 @@ impl ComponentGenerator {
                     local_replacements.insert(output.clone(), allocated);
                 }
             }
-            local_stats.push(rename_module_item_idents(&stat.code, &replacements)?);
+            local_stats.push(
+                self.backend
+                    .rename_module_item_idents(&stat.code, &replacements)?,
+            );
         }
 
         let mut jsx_replacements = module_replacements;
@@ -602,6 +614,7 @@ fn add_stat_outputs(stats: &[RenderedStat], used_names: &mut IndexSet<String>) {
 fn rename_inline_fragment_outputs(
     fragment: &mut RenderedFragment,
     used_names: &mut IndexSet<String>,
+    backend: &impl JsCodeBackend,
 ) -> Result<()> {
     let mut replacements = BTreeMap::<String, String>::new();
     for stat in &fragment.stats {
@@ -625,14 +638,14 @@ fn rename_inline_fragment_outputs(
     }
 
     for stat in &mut fragment.stats {
-        stat.code = rename_module_item_idents(&stat.code, &replacements)?;
+        stat.code = backend.rename_module_item_idents(&stat.code, &replacements)?;
         for output in &mut stat.outputs {
             if let Some(replacement) = replacements.get(output) {
                 *output = replacement.clone();
             }
         }
     }
-    fragment.jsx = rename_expr_idents(&fragment.jsx, &replacements)?;
+    fragment.jsx = backend.rename_expr_idents(&fragment.jsx, &replacements)?;
     Ok(())
 }
 
@@ -662,6 +675,7 @@ fn is_js_ident(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::code_backend::OxcCodeBackend;
     use crate::model::unwrap_page_schema;
     use crate::registry::{
         DataSourceSource, DataSourceSourceGenerateCode, DataSourceSourceSchema, NodeSource,
@@ -697,6 +711,35 @@ mod tests {
         assert!(code.contains("<div>{\"Hello\"}</div>"));
         assert!(code.contains("export default SamplePage"));
         assert!(!code.contains("function TextChild"));
+    }
+
+    #[test]
+    fn generates_basic_page_with_oxc_backend() {
+        let raw = serde_json::json!({
+          "pageSchema": {
+            "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+            "root": {
+              "id": "root",
+              "meta": { "scope": true, "title": "SamplePage" },
+              "type": "Layout",
+              "props": { "TEXT": "Hello" },
+              "children": [
+                { "id": "child", "type": "Text", "props": { "TEXT": "World", "DEFAULT_VALUE": 1 } }
+              ]
+            },
+            "context": {}
+          }
+        });
+        let page = unwrap_page_schema(raw).unwrap();
+        let code =
+            ComponentGenerator::with_backend(crate::builtins::default_registry(), OxcCodeBackend)
+                .generate_page_code(&page)
+                .unwrap();
+        assert!(code.contains("import { useState } from \"react\""));
+        assert!(code.contains("function SamplePage"));
+        assert!(code.contains("const [text, setText] = useState(1)"));
+        assert!(code.contains("<div>{\"World\"}</div>"));
+        assert!(code.contains("export default SamplePage"));
     }
 
     #[test]

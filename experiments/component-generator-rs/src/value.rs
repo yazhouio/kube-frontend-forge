@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 
 use serde_json::Value;
-use swc_ecma_ast::Expr;
 
-use crate::ast::parse_expr;
 use crate::error::{Error, Result};
 
 #[derive(Clone, Default)]
@@ -47,25 +45,6 @@ pub enum BindingUse {
     DataSource { source: String, output: String },
     ActionGraph { source: String },
     Runtime,
-}
-
-pub fn value_to_expr(value: &Value) -> Result<Expr> {
-    if let Some(obj) = value.as_object() {
-        if obj.get("type").and_then(Value::as_str) == Some("expression") {
-            let code = obj
-                .get("code")
-                .and_then(Value::as_str)
-                .ok_or(Error::ExpressionCodeRequired)?;
-            return parse_expr(code);
-        }
-
-        if obj.get("type").and_then(Value::as_str) == Some("binding") {
-            return binding_to_expr(value, &BindingContext::default());
-        }
-    }
-
-    let code = serde_json::to_string(value).map_err(|source| Error::JsonValue { source })?;
-    parse_expr(&code)
 }
 
 pub fn value_to_expr_code(value: Option<&Value>, fallback: &str) -> Result<String> {
@@ -167,10 +146,6 @@ pub fn expr_to_code_with_context(value: &Value, ctx: &BindingContext) -> Result<
     }
 
     serde_json::to_string(value).map_err(|source| Error::JsonValue { source })
-}
-
-fn binding_to_expr(value: &Value, ctx: &BindingContext) -> Result<Expr> {
-    parse_expr(&binding_to_code(value, ctx)?)
 }
 
 fn binding_to_code(value: &Value, ctx: &BindingContext) -> Result<String> {

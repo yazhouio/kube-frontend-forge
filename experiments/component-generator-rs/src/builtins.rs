@@ -1,6 +1,3 @@
-use swc_common::DUMMY_SP;
-use swc_ecma_ast::Ident;
-
 use crate::registry::{
     DataSourceSource, DataSourceSourceGenerateCode, DataSourceSourceSchema, NodeSource,
     NodeSourceGenerateCode, NodeSourceMeta, NodeSourceSchema, Registry, StatSource, StatementScope,
@@ -579,8 +576,4 @@ fn crd_page_state_outputs() -> Vec<(&'static str, TemplateOutput)> {
         ("del", TemplateOutput { ty: "object" }),
         ("create", TemplateOutput { ty: "object" }),
     ]
-}
-
-pub fn ident(name: &str) -> Ident {
-    Ident::new_no_ctxt(name.into(), DUMMY_SP)
 }

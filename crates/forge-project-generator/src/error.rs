@@ -4,7 +4,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
-    #[snafu(display("usage: project-generator-rs <manifest.json> [--out result.json]"))]
+    #[snafu(display("usage: forge-project-generator <manifest.json> [--out result.json]"))]
     MissingInputPath,
 
     #[snafu(display("missing value for --out"))]
@@ -36,6 +36,9 @@ pub enum Error {
 
     #[snafu(display("failed to serialize generated project: {source}"))]
     SerializeJson { source: serde_json::Error },
+
+    #[snafu(display("failed to render page {page_id}: {message}"))]
+    RenderPage { page_id: String, message: String },
 
     #[snafu(display("manifest is required"))]
     MissingManifest,

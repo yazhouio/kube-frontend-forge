@@ -12,3 +12,4 @@ packages/project-generator/tsconfig.tsbuildinfo
 **/AGENTS.md
 **/spec
 demo
+target

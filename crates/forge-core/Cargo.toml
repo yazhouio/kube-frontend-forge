@@ -1,0 +1,13 @@
+[package]
+name = "forge-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+forge-component-generator = { path = "../forge-component-generator" }
+forge-project-generator = { path = "../forge-project-generator" }
+serde.workspace = true
+serde_json.workspace = true
+snafu.workspace = true
+

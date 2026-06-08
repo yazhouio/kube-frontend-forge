@@ -13,10 +13,9 @@ pub use types::{
     LocaleMeta, ManifestEnvelope, MenuMeta, PageMeta, RouteMeta, VirtualFile,
 };
 
-static SCAFFOLD_DIR: Dir<'_> =
-    include_dir!("$CARGO_MANIFEST_DIR/../../packages/project-generator/scaffold");
+static SCAFFOLD_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/scaffold");
 
-pub type PageRenderer = dyn Fn(&PageMeta, &ExtensionManifest) -> String;
+pub type PageRenderer<'a> = dyn Fn(&PageMeta, &ExtensionManifest) -> Result<String> + 'a;
 
 pub fn unwrap_manifest(value: Value) -> Result<ExtensionManifest> {
     if value.get("manifest").is_some() {
@@ -34,11 +33,14 @@ pub fn unwrap_manifest(value: Value) -> Result<ExtensionManifest> {
     }
 }
 
-pub fn generate_project_files(
+pub fn generate_project_files<R>(
     manifest: &ExtensionManifest,
-    renderer: &PageRenderer,
+    renderer: R,
     options: GenerateProjectFilesOptions,
-) -> Result<GenerateProjectFilesResult> {
+) -> Result<GenerateProjectFilesResult>
+where
+    R: Fn(&PageMeta, &ExtensionManifest) -> Result<String>,
+{
     validate_manifest(manifest)?;
     let normalized = normalize_manifest(manifest);
 
@@ -55,6 +57,7 @@ pub fn generate_project_files(
     let mut out = Vec::<VirtualFile>::new();
     let excluded = BTreeSet::from([
         "package.json.tpl",
+        "rollup.config.mjs.tpl",
         "src/extensionConfig.ts.tpl",
         "src/routes.tsx.tpl",
         "src/routes.ts.tpl",
@@ -87,6 +90,23 @@ pub fn generate_project_files(
     });
 
     out.push(VirtualFile {
+        path: "rollup.config.mjs".to_owned(),
+        content: render_template(
+            required_template(&scaffold, "rollup.config.mjs.tpl")?,
+            &BTreeMap::from([(
+                "MODULE_NAME_JSON".to_owned(),
+                json_string(
+                    normalized
+                        .build
+                        .as_ref()
+                        .and_then(|build| build.module_name.as_deref())
+                        .unwrap_or(&normalized.name),
+                ),
+            )]),
+        ),
+    });
+
+    out.push(VirtualFile {
         path: "src/extensionConfig.ts".to_owned(),
         content: render_template(
             required_template(&scaffold, "src/extensionConfig.ts.tpl")?,
@@ -100,7 +120,7 @@ pub fn generate_project_files(
 
     render_routes(&normalized, &scaffold, &mut out)?;
     render_locales(&merged_locales, &scaffold, &mut out)?;
-    render_pages(&normalized, &scaffold, renderer, &mut out)?;
+    render_pages(&normalized, &scaffold, &renderer, &mut out)?;
 
     Ok(GenerateProjectFilesResult {
         files: out,
@@ -411,12 +431,15 @@ fn render_locales(
     Ok(())
 }
 
-fn render_pages(
+fn render_pages<R>(
     manifest: &ExtensionManifest,
     scaffold: &BTreeMap<String, String>,
-    renderer: &PageRenderer,
+    renderer: &R,
     out: &mut Vec<VirtualFile>,
-) -> Result<()> {
+) -> Result<()>
+where
+    R: Fn(&PageMeta, &ExtensionManifest) -> Result<String>,
+{
     let page_index_template = required_template(scaffold, "src/pages/__PAGE__/index.tsx.tpl")?;
     let page_content_template = required_template(scaffold, "src/pages/__PAGE__/page.tsx.tpl")?;
     let page_component_file =
@@ -427,7 +450,7 @@ fn render_pages(
         };
 
     for page in &manifest.pages {
-        let page_content = renderer(page, manifest);
+        let page_content = renderer(page, manifest)?;
         out.push(VirtualFile {
             path: normalize_rel_path(&format!("src/pages/{}/index.tsx", page.id))?,
             content: render_template(
@@ -696,11 +719,11 @@ mod tests {
         let manifest = sample_manifest();
         let result = generate_project_files(
             &manifest,
-            &|page, _manifest| {
-                format!(
+            |page: &PageMeta, _manifest: &ExtensionManifest| {
+                Ok(format!(
                     "export default function {}() {{ return null; }}",
                     page.entry_component
-                )
+                ))
             },
             GenerateProjectFilesOptions::default(),
         )
@@ -754,7 +777,7 @@ mod tests {
         let manifest = sample_manifest();
         let result = generate_project_files(
             &manifest,
-            &|_, _| String::new(),
+            |_: &PageMeta, _: &ExtensionManifest| Ok(String::new()),
             GenerateProjectFilesOptions {
                 build: true,
                 archive: true,
@@ -778,7 +801,7 @@ mod tests {
 
         let err = generate_project_files(
             &manifest,
-            &|_, _| String::new(),
+            |_: &PageMeta, _: &ExtensionManifest| Ok(String::new()),
             GenerateProjectFilesOptions::default(),
         )
         .unwrap_err()

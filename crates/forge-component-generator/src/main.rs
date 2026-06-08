@@ -1,6 +1,6 @@
 #[cfg(feature = "swc")]
-use component_generator_rs::SwcCodeBackend;
-use component_generator_rs::{
+use forge_component_generator::SwcCodeBackend;
+use forge_component_generator::{
     ComponentGenerator, Error, OxcCodeBackend, Result, builtins::default_registry,
     unwrap_page_schema,
 };

@@ -1,0 +1,48 @@
+FROM rust:1-bookworm AS rust-builder
+
+WORKDIR /workspace
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY apps/forge-job ./apps/forge-job
+RUN cargo build --release -p forge-job
+
+FROM node:20-bookworm-slim AS node-deps
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@11.1.0 --activate
+
+WORKDIR /workspace
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/forge-job/package.json ./apps/forge-job/package.json
+COPY apps/preview/package.json ./apps/preview/package.json
+COPY apps/server/package.json ./apps/server/package.json
+COPY packages/code-export/package.json ./packages/code-export/package.json
+COPY packages/component-generator/package.json ./packages/component-generator/package.json
+COPY packages/forge-components/package.json ./packages/forge-components/package.json
+COPY packages/forge-core/package.json ./packages/forge-core/package.json
+COPY packages/project-generator/package.json ./packages/project-generator/package.json
+COPY packages/vendor/package.json ./packages/vendor/package.json
+RUN pnpm install --frozen-lockfile
+
+COPY packages/forge-components ./packages/forge-components
+RUN pnpm --filter @frontend-forge/forge-components build
+
+FROM node:20-bookworm-slim AS runtime
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+ENV FORGE_NODE_MODULES_DIR="/app/apps/forge-job/node_modules"
+ENV FORGE_ROLLUP_BIN="/app/apps/forge-job/node_modules/.bin/rollup"
+ENV FORGE_COMPONENTS_PACKAGE_JSON="/app/packages/forge-components/package.json"
+
+RUN corepack enable && corepack prepare pnpm@11.1.0 --activate
+
+WORKDIR /app
+COPY --from=rust-builder /workspace/target/release/frontend-forge-job /usr/local/bin/frontend-forge-job
+COPY --from=node-deps /workspace/node_modules ./node_modules
+COPY --from=node-deps /workspace/apps/forge-job/node_modules ./apps/forge-job/node_modules
+COPY --from=node-deps /workspace/packages/forge-components ./packages/forge-components
+
+ENTRYPOINT ["frontend-forge-job"]
+CMD ["build", "--input", "/input/manifest.json", "--out-dir", "/output"]

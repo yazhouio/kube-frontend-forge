@@ -1,0 +1,9 @@
+.git
+.cache
+.tmp
+dist
+target
+**/target
+node_modules
+**/node_modules
+**/tsconfig.tsbuildinfo

@@ -1,0 +1,40 @@
+{
+  "name": "__NAME__",
+  "version": "__VERSION__",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "rollup -c"
+  },
+  "dependencies": {
+    "@frontend-forge/forge-components": "^0.1.0",
+    "@ks-console/shared": "4.2.1",
+    "@kubed/charts": "^0.2.35",
+    "@kubed/code-editor": "^0.2.35",
+    "@kubed/components": "^0.2.35",
+    "@kubed/hooks": "^0.2.35",
+    "@kubed/icons": "^0.2.35",
+    "@tanstack/react-table": "^8.21.3",
+    "es-toolkit": "^1.43.0",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2",
+    "react-query": "^3.32.1",
+    "react-router-dom": "^6.22.3",
+    "qs": "6.14.1",
+    "styled-components": "5.3.3",
+    "swr": "^2.3.8",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^29.0.3",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "postcss": "^8.5.6",
+    "rollup": "^4.61.1",
+    "rollup-plugin-postcss": "^4.0.2",
+    "tslib": "^2.8.1",
+    "typescript": "^5.7.3"
+  }
+}

@@ -5,7 +5,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display(
-        "usage: component-generator-rs <page-schema.json> [--backend oxc|swc] [--out page.tsx]"
+        "usage: forge-component-generator <page-schema.json> [--backend oxc|swc] [--out page.tsx]"
     ))]
     MissingInputPath,
 

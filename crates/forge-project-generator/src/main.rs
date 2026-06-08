@@ -1,4 +1,4 @@
-use project_generator_rs::{
+use forge_project_generator::{
     Error, GenerateProjectFilesOptions, Result, generate_project_files, unwrap_manifest,
 };
 
@@ -22,11 +22,11 @@ fn run() -> Result<()> {
     let manifest = unwrap_manifest(value)?;
     let result = generate_project_files(
         &manifest,
-        &|page, _manifest| {
-            format!(
+        |page, _manifest| {
+            Ok(format!(
                 "export default function {}() {{\n  return null;\n}}\n",
                 page.entry_component
-            )
+            ))
         },
         GenerateProjectFilesOptions {
             build: args.build,

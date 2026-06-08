@@ -1,8 +1,6 @@
-# component-generator-rs
+# forge-component-generator
 
-Experimental Rust rewrite of `packages/component-generator`.
-
-This is intentionally isolated from the current TypeScript packages. The goal is to validate the Rust generator and parser/backend shape before wiring it into `forge-core` or the server.
+Rust component generator for Frontend Forge.
 
 ## Current Scope
 
@@ -58,9 +56,9 @@ Full dependency graph parity with the TypeScript implementation is not complete 
 From this directory:
 
 ```bash
-cargo run -- ../../apps/server/examples/page.schema.json
-cargo run -- ../../apps/server/examples/page.schema.json --out SamplePage.tsx
-cargo run --features swc -- ../../apps/server/examples/page.schema.json --backend swc
+cargo run -p forge-component-generator -- ../../apps/server/examples/page.schema.json
+cargo run -p forge-component-generator -- ../../apps/server/examples/page.schema.json --out SamplePage.tsx
+cargo run -p forge-component-generator --features swc -- ../../apps/server/examples/page.schema.json --backend swc
 cargo test
 cargo test --features swc
 ```

@@ -1,6 +1,6 @@
 [workspace]
 members = [
-  "apps/forge-job",
+  "crates/forge-job",
   "crates/forge-component-generator",
   "crates/forge-core",
   "crates/forge-project-generator",
@@ -34,4 +34,3 @@ swc_ecma_parser = "41.0.0"
 swc_ecma_visit = "25.0.0"
 tar = "0.4"
 tempfile = "3.10"
-

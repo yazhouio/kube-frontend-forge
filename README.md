@@ -7,7 +7,7 @@ removed; inputs and outputs are file based.
 
 ## Project Structure
 
-- `apps/forge-job`: Rust CLI entrypoint for build jobs, file IO, Rollup execution, validation, and archive output.
+- `crates/forge-job`: Rust CLI entrypoint for build jobs, file IO, Rollup execution, validation, and archive output.
 - `crates/forge-core`: orchestration boundary that creates build plans without binding to Rollup, pnpm, or archive details.
 - `crates/forge-component-generator`: Rust component tree to TSX generator, Oxc by default and SWC behind the `swc` feature.
 - `crates/forge-project-generator`: manifest to plain Rollup project files.
@@ -48,7 +48,7 @@ Install dependencies:
 pnpm install
 ```
 
-The pnpm workspace is intentionally narrow: `apps/forge-job` provides the
+The pnpm workspace is intentionally narrow: `crates/forge-job` provides the
 Rollup/Node runtime dependencies, and `packages/forge-components` is the
 TS/React runtime package linked by the Job.
 
@@ -68,8 +68,8 @@ cargo test --workspace --features swc
 Run a local full build with the sample manifest:
 
 ```bash
-FORGE_NODE_MODULES_DIR=/Users/yazhou/code/frontend-forge/apps/forge-job/node_modules \
-FORGE_ROLLUP_BIN=/Users/yazhou/code/frontend-forge/apps/forge-job/node_modules/.bin/rollup \
+FORGE_NODE_MODULES_DIR=/Users/yazhou/code/frontend-forge/crates/forge-job/node_modules \
+FORGE_ROLLUP_BIN=/Users/yazhou/code/frontend-forge/crates/forge-job/node_modules/.bin/rollup \
 cargo run -p forge-job --bin frontend-forge-job -- build \
   --input examples/full.json \
   --out-dir .tmp/full-flow/local-out \
@@ -88,7 +88,7 @@ Build the Job image:
 
 ```bash
 NPM_AUTH_BASE64='***' docker build \
-  -f apps/forge-job/Dockerfile \
+  -f crates/forge-job/Dockerfile \
   --secret id=npm_auth_base64,env=NPM_AUTH_BASE64 \
   -t frontend-forge-job:full-smoke .
 ```

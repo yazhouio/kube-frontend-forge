@@ -10,11 +10,10 @@ path = "src/main.rs"
 
 [dependencies]
 flate2.workspace = true
-forge-core = { path = "../../crates/forge-core" }
-forge-project-generator = { path = "../../crates/forge-project-generator" }
+forge-core = { path = "../forge-core" }
+forge-project-generator = { path = "../forge-project-generator" }
 serde.workspace = true
 serde_json.workspace = true
 snafu.workspace = true
 tar.workspace = true
 tempfile.workspace = true
-

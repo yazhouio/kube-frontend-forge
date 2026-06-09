@@ -1,5 +1,5 @@
 packages:
-  - apps/forge-job
+  - crates/forge-job
   - packages/forge-components
 autoInstallPeers: false
 verifyDepsBeforeRun: false

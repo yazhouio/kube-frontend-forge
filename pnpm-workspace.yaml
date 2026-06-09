@@ -1,6 +1,6 @@
 packages:
-  - apps/*
-  - packages/*
+  - apps/forge-job
+  - packages/forge-components
 autoInstallPeers: false
 verifyDepsBeforeRun: false
 allowBuilds:

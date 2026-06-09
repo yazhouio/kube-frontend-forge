@@ -1,6 +1,0 @@
-{
-  "PROJECT_GENERATOR.CREATE": "Create",
-  "PROJECT_GENERATOR.CREATE_TITLE_SL": "Create {type}",
-  "PROJECT_GENERATOR.CRD_NOT_FOUND_TITLE": "找不到资源定义 (CRD)",
-  "PROJECT_GENERATOR.CRD_NOT_FOUND_DESCRIPTION": "无法获取该资源的信息。如果该 CRD 已存在于集群中，请尝试通过以下命令开启资源同步："
-}

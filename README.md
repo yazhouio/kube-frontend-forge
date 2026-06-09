@@ -12,7 +12,6 @@ removed; inputs and outputs are file based.
 - `crates/forge-component-generator`: Rust component tree to TSX generator, Oxc by default and SWC behind the `swc` feature.
 - `crates/forge-project-generator`: manifest to plain Rollup project files.
 - `packages/forge-components`: TS/React runtime component package used by generated pages.
-- `packages/*`: legacy TS packages that remain available while the Rust pipeline replaces their runtime responsibilities.
 - `examples/`: local manifest and page-schema examples for CLI testing.
 
 ## Build Job
@@ -48,6 +47,10 @@ Install dependencies:
 ```bash
 pnpm install
 ```
+
+The pnpm workspace is intentionally narrow: `apps/forge-job` provides the
+Rollup/Node runtime dependencies, and `packages/forge-components` is the
+TS/React runtime package linked by the Job.
 
 Build the TS runtime components:
 

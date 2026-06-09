@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@11.1.0",
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "apps/forge-job",
+    "packages/forge-components"
   ]
 }

@@ -1,10 +1,8 @@
 # @frontend-forge/vendor
 
-Vendored runtime dependencies (React ecosystem helpers, polyfills, etc.) stored under `packages/vendor` and deployed separately for the server runtime.
+Legacy vendored runtime dependency package.
 
-Install with:
-```bash
-pnpm --config.inject-workspace-packages=true --filter @frontend-forge/vendor deploy --prod apps/server/vendor
-```
-
-Used by the SystemJS build step to locate `node_modules` for externals without pulling them into the generated bundle.
+The previous HTTP server runtime used this package to deploy a server-local
+`vendor/node_modules`. The production path is now the Rust `apps/forge-job`
+pipeline, so this package is retained only for compatibility with legacy TS
+packages while the runtime is migrated.

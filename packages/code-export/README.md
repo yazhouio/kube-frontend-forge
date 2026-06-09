@@ -77,5 +77,5 @@ tailwind: {
 ## Resolution of `node_modules`
 
 - `vendorNodeModules` is resolved by checking the provided path first, then falling back to legacy `packages/vendor/node_modules`, `vendor/node_modules`, and finally `node_modules`.
-- When used by the server, `vendorNodeModules` points to `apps/server/vendor/node_modules` (deployed from `packages/vendor`).
+- This package is retained for legacy TS build helpers. The production build path now uses the Rust `apps/forge-job` CLI and generated Rollup projects instead of an HTTP server.
 - If `workDir` is not provided, a temp dir is created and cleaned automatically.

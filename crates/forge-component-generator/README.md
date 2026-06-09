@@ -56,9 +56,9 @@ Full dependency graph parity with the TypeScript implementation is not complete 
 From this directory:
 
 ```bash
-cargo run -p forge-component-generator -- ../../apps/server/examples/page.schema.json
-cargo run -p forge-component-generator -- ../../apps/server/examples/page.schema.json --out SamplePage.tsx
-cargo run -p forge-component-generator --features swc -- ../../apps/server/examples/page.schema.json --backend swc
+cargo run -p forge-component-generator -- ../../examples/page.schema.json
+cargo run -p forge-component-generator -- ../../examples/page.schema.json --out SamplePage.tsx
+cargo run -p forge-component-generator --features swc -- ../../examples/page.schema.json --backend swc
 cargo test
 cargo test --features swc
 ```

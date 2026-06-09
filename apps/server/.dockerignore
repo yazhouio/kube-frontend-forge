@@ -1,6 +1,0 @@
-node_modules
-.cache
-.git
-.DS_Store
-npm-debug.log
-pnpm-debug.log

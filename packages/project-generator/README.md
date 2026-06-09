@@ -74,5 +74,6 @@ They are reserved for higher-level orchestration in `forge-core`.
 
 ## Notes
 
-- Writing files to disk is handled by the caller (CLI/server/etc).
-- CLI usage in `apps/server/src/projectCli.ts` consumes this package via workspace.
+- Writing files to disk is handled by the caller.
+- The production path now uses the Rust `crates/forge-project-generator` and
+  `apps/forge-job`; this TS package remains for legacy compatibility.

@@ -15,7 +15,7 @@ The page body is supplied by a `PageRenderer` callback in library usage. The CLI
 ## Usage
 
 ```bash
-cargo run -p forge-project-generator -- ../../apps/server/examples/manifest.sample.json
-cargo run -p forge-project-generator -- ../../apps/server/examples/manifest.sample.json --out ../../.tmp/forge-project-generator.json
+cargo run -p forge-project-generator -- ../../examples/manifest.sample.json
+cargo run -p forge-project-generator -- ../../examples/manifest.sample.json --out ../../.tmp/forge-project-generator.json
 cargo test
 ```

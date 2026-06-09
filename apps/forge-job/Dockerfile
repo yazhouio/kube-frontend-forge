@@ -17,8 +17,6 @@ RUN corepack enable && corepack prepare pnpm@11.1.0 --activate
 WORKDIR /workspace
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/forge-job/package.json ./apps/forge-job/package.json
-COPY apps/preview/package.json ./apps/preview/package.json
-COPY apps/server/package.json ./apps/server/package.json
 COPY packages/code-export/package.json ./packages/code-export/package.json
 COPY packages/component-generator/package.json ./packages/component-generator/package.json
 COPY packages/forge-components/package.json ./packages/forge-components/package.json

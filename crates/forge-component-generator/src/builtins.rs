@@ -464,10 +464,40 @@ fn workspace_crd_page_state_data_source() -> DataSourceSource {
   const params = runtime?.route?.params || {};
   const pageContext = {...runtime?.capabilities, useTableActions: runtime?.capabilities?.useWorkspaceTableActions};
   const storeQuery = useMemo(() => buildSearchObject(page, true), [page]);
-  const store = useStore({ params, query: storeQuery }, storeOptions ?? {});
+
+  const useWorkspaceProjectSelectHook = useMemo(
+    () =>
+      pageContext?.useWorkspaceProjectSelect ||
+      (() => ({ render: null, params: {} })),
+    [pageContext],
+  );
+  const {
+    render: renderProjectSelect,
+    params: { cluster, namespace },
+  } = useWorkspaceProjectSelectHook({
+    workspace: params.workspace,
+    showAll: false,
+  });
+
+  const resolvedOptions =
+    storeOptions && Object.prototype.hasOwnProperty.call(storeOptions, "enabled")
+      ? storeOptions
+      : {
+          ...(storeOptions || {}),
+          enabled: Boolean(namespace),
+        };
+
+  const store = useStore(
+    {
+      params: { ...params, namespace, cluster },
+      query: storeQuery,
+    },
+    resolvedOptions,
+  );
+
   return {
-    params,
-    toolbarLeft: null,
+    params: { ...params, namespace, cluster },
+    toolbarLeft: renderProjectSelect,
     pageContext,
     data: store.data,
     loading: Boolean(store.isLoading || store.isValidating),

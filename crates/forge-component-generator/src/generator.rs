@@ -1109,6 +1109,45 @@ mod tests {
     }
 
     #[test]
+    fn workspace_crd_page_state_uses_workspace_project_selector() {
+        let raw = serde_json::json!({
+          "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+          "dataSources": [
+            {
+              "id": "pageState",
+              "type": "workspace-crd-page-state",
+              "config": {
+                "PAGE_ID": "sample-page",
+                "CRD_CONFIG": { "plural": "widgets", "group": "example.io" }
+              }
+            }
+          ],
+          "root": {
+            "id": "root",
+            "meta": { "scope": true, "title": "SamplePage" },
+            "type": "Layout",
+            "props": {
+              "TEXT": {
+                "type": "binding",
+                "source": "pageState",
+                "bind": "params"
+              }
+            }
+          },
+          "context": {}
+        });
+        let page = unwrap_page_schema(raw).unwrap();
+        let code = ComponentGenerator::default()
+            .generate_page_code(&page)
+            .unwrap();
+        assert_code_contains(&code, "const useWorkspaceProjectSelectHook = useMemo(");
+        assert_code_contains(&code, "pageContext?.useWorkspaceProjectSelect");
+        assert_code_contains(&code, "enabled: Boolean(namespace)");
+        assert_code_contains(&code, "params: { ...params, namespace, cluster }");
+        assert_code_contains(&code, "toolbarLeft: renderProjectSelect");
+    }
+
+    #[test]
     fn renders_data_source_hook_name_as_identifier() {
         let raw = serde_json::json!({
           "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },

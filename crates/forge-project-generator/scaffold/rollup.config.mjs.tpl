@@ -4,21 +4,45 @@ import { nodeResolve } from '@rollup/plugin-node-resolve';
 import typescript from '@rollup/plugin-typescript';
 import postcss from 'rollup-plugin-postcss';
 
-const external = [
-  'react',
-  'react-dom',
-  'react-router-dom',
-  'react-query',
-  'styled-components',
+const externalPackages = [
   '@ks-console/shared',
-  '@kubed/charts',
   '@kubed/code-editor',
   '@kubed/components',
-  '@kubed/hooks',
   '@kubed/icons',
-  'posthog-js',
-  'wujie-react',
+  'react',
+  'react-dom',
+  'react-query',
+  'react-router-dom',
+  'styled-components',
 ];
+
+const external = (id) => externalPackages.includes(id);
+
+function replaceNodeEnv() {
+  const production = JSON.stringify('production');
+  const replacements = [
+    ['process.env.NODE_ENV', production],
+    ['process.env["NODE_ENV"]', production],
+    ["process.env['NODE_ENV']", production],
+  ];
+
+  return {
+    name: 'forge-replace-node-env',
+    transform(code) {
+      if (!code.includes('process.env')) {
+        return null;
+      }
+      let next = code;
+      for (const [from, to] of replacements) {
+        next = next.replaceAll(from, to);
+      }
+      if (next === code) {
+        return null;
+      }
+      return { code: next, map: null };
+    },
+  };
+}
 
 export default {
   input: 'src/index.ts',
@@ -29,10 +53,10 @@ export default {
     entryFileNames: 'index.js',
     chunkFileNames: 'chunks/[name]-[hash].js',
     assetFileNames: 'assets/[name][extname]',
-    name: __MODULE_NAME_JSON__,
   },
   treeshake: true,
   plugins: [
+    replaceNodeEnv(),
     nodeResolve({
       browser: true,
       extensions: ['.mjs', '.js', '.jsx', '.json', '.ts', '.tsx'],

@@ -113,11 +113,7 @@ fn binding_use(value: &Value, ctx: &BindingContext) -> Option<BindingUse> {
             source: source.to_owned(),
         });
     }
-    let path = obj
-        .get("path")
-        .or_else(|| obj.get("bind"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let path = obj.get("path").and_then(Value::as_str).unwrap_or("");
     let bind = obj.get("bind").and_then(Value::as_str);
     let output = resolve_data_source_output(source, path, bind, ctx);
     Some(BindingUse::DataSource {
@@ -155,11 +151,7 @@ fn binding_to_code(value: &Value, ctx: &BindingContext) -> Result<String> {
         .and_then(Value::as_str)
         .unwrap_or("dataSource");
     let source = obj.get("source").and_then(Value::as_str).unwrap_or("");
-    let path = obj
-        .get("path")
-        .or_else(|| obj.get("bind"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let path = obj.get("path").and_then(Value::as_str).unwrap_or("");
 
     let fallback = obj
         .get("defaultValue")

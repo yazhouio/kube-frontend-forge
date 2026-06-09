@@ -738,6 +738,7 @@ mod tests {
         assert!(paths.contains(&"package.json"));
         assert!(paths.contains(&"src/extensionConfig.ts"));
         assert!(paths.contains(&"src/routes.tsx"));
+        assert!(paths.contains(&"rollup.config.mjs"));
         assert!(paths.contains(&"src/locales/en.json"));
         assert!(paths.contains(&"src/locales/zh.json"));
         assert!(paths.contains(&"src/pages/SamplePage/index.tsx"));
@@ -770,6 +771,19 @@ mod tests {
                 .content
                 .contains("\"skipWorkspaceAuth\": true")
         );
+
+        let rollup_config = result
+            .files
+            .iter()
+            .find(|file| file.path == "rollup.config.mjs")
+            .unwrap();
+        assert!(rollup_config.content.contains("'@ks-console/shared'"));
+        assert!(rollup_config.content.contains("'react'"));
+        assert!(!rollup_config.content.contains("'zustand'"));
+        assert!(rollup_config.content.contains("replaceNodeEnv()"));
+        assert!(rollup_config.content.contains("process.env.NODE_ENV"));
+        assert!(rollup_config.content.contains("format: 'system'"));
+        assert!(!rollup_config.content.contains("__MODULE_NAME_JSON__"));
     }
 
     #[test]

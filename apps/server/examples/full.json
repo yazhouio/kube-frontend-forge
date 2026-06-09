@@ -1,0 +1,362 @@
+{
+  "build": {
+    "moduleName": "inspecttask",
+    "systemjs": true,
+    "target": "kubesphere-extension"
+  },
+  "description": "InspectTask extension package.",
+  "displayName": "Inspect Task",
+  "locales": [
+    {
+      "lang": "en",
+      "messages": {
+        "title": "Role Test"
+      }
+    },
+    {
+      "lang": "zh",
+      "messages": {
+        "title": "角色test"
+      }
+    }
+  ],
+  "menus": [
+    {
+      "icon": "GridDuotone",
+      "name": "frontendextensions/inspecttask/role-test",
+      "order": 999,
+      "parent": "workspace",
+      "title": "Role"
+    },
+    {
+      "icon": "GridDuotone",
+      "name": "frontendextensions/inspecttask/cluster-role-test",
+      "order": 999,
+      "parent": "cluster",
+      "title": "Role"
+    }
+  ],
+  "name": "inspecttask",
+  "pages": [
+    {
+      "componentsTree": {
+        "context": {},
+        "dataSources": [
+          {
+            "config": {
+              "COLUMNS_CONFIG": [
+                {
+                  "enableSorting": true,
+                  "key": "name",
+                  "render": {
+                    "path": "metadata.name",
+                    "payload": {},
+                    "type": "text"
+                  },
+                  "title": "NAME"
+                },
+                {
+                  "enableHiding": true,
+                  "key": "namespace",
+                  "render": {
+                    "path": "metadata.namespace",
+                    "payload": {},
+                    "type": "text"
+                  },
+                  "title": "PROJECT"
+                },
+                {
+                  "enableHiding": true,
+                  "enableSorting": true,
+                  "key": "updateTime",
+                  "render": {
+                    "path": "metadata.creationTimestamp",
+                    "payload": {
+                      "format": "local-datetime"
+                    },
+                    "type": "time"
+                  },
+                  "title": "CREATION_TIME"
+                }
+              ],
+              "HOOK_NAME": "useCrdColumns"
+            },
+            "id": "columns",
+            "type": "crd-columns"
+          },
+          {
+            "args": [
+              {
+                "bind": "columns",
+                "source": "columns",
+                "type": "binding"
+              }
+            ],
+            "config": {
+              "CRD_CONFIG": {
+                "apiVersion": "v1beta1",
+                "group": "iam.kubesphere.io",
+                "kapi": true,
+                "kind": "Role",
+                "plural": "roles"
+              },
+              "HOOK_NAME": "useCrdPageState",
+              "PAGE_ID": "inspecttask-workspace-role-test"
+            },
+            "id": "pageState",
+            "type": "workspace-crd-page-state"
+          }
+        ],
+        "meta": {
+          "id": "inspecttask-workspace-role-test",
+          "name": "inspecttask-workspace-role-test",
+          "path": "/inspecttask-workspace-role-test",
+          "title": "Role"
+        },
+        "root": {
+          "id": "inspecttask-workspace-role-test-root",
+          "meta": {
+            "scope": true,
+            "title": "CrdTable"
+          },
+          "props": {
+            "AUTH_KEY": "inspecttask",
+            "COLUMNS": {
+              "bind": "columns",
+              "source": "columns",
+              "type": "binding"
+            },
+            "CREATE": {
+              "bind": "create",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "CREATE_INITIAL_VALUE": {
+              "apiVersion": "iam.kubesphere.io/v1beta1",
+              "kind": "Role",
+              "metadata": {
+                "annotations": {},
+                "labels": {},
+                "name": "",
+                "namespace": ""
+              },
+              "spec": {}
+            },
+            "DATA": {
+              "bind": "data",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "DEL": {
+              "bind": "del",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "IS_LOADING": {
+              "bind": "loading",
+              "defaultValue": false,
+              "source": "pageState",
+              "type": "binding"
+            },
+            "PAGE_CONTEXT": {
+              "bind": "pageContext",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "PARAMS": {
+              "bind": "params",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "REFETCH": {
+              "bind": "refetch",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "TABLE_KEY": "inspecttask-workspace-role-test",
+            "TITLE": "Role",
+            "TOOLBAR_LEFT": {
+              "bind": "toolbarLeft",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "UPDATE": {
+              "bind": "update",
+              "source": "pageState",
+              "type": "binding"
+            }
+          },
+          "type": "CrdTable"
+        }
+      },
+      "entryComponent": "inspecttask-workspace-role-test",
+      "id": "inspecttask-workspace-role-test"
+    },
+    {
+      "componentsTree": {
+        "context": {},
+        "dataSources": [
+          {
+            "config": {
+              "COLUMNS_CONFIG": [
+                {
+                  "enableSorting": true,
+                  "key": "name",
+                  "render": {
+                    "path": "metadata.name",
+                    "payload": {},
+                    "type": "text"
+                  },
+                  "title": "NAME"
+                },
+                {
+                  "enableHiding": true,
+                  "key": "namespace",
+                  "render": {
+                    "path": "metadata.namespace",
+                    "payload": {},
+                    "type": "text"
+                  },
+                  "title": "PROJECT"
+                },
+                {
+                  "enableHiding": true,
+                  "enableSorting": true,
+                  "key": "updateTime",
+                  "render": {
+                    "path": "metadata.creationTimestamp",
+                    "payload": {
+                      "format": "local-datetime"
+                    },
+                    "type": "time"
+                  },
+                  "title": "CREATION_TIME"
+                }
+              ],
+              "HOOK_NAME": "useCrdColumns"
+            },
+            "id": "columns",
+            "type": "crd-columns"
+          },
+          {
+            "args": [
+              {
+                "bind": "columns",
+                "source": "columns",
+                "type": "binding"
+              }
+            ],
+            "config": {
+              "CRD_CONFIG": {
+                "apiVersion": "v1beta1",
+                "group": "iam.kubesphere.io",
+                "kapi": true,
+                "kind": "Role",
+                "plural": "roles"
+              },
+              "HOOK_NAME": "useCrdPageState",
+              "PAGE_ID": "inspecttask-cluster-cluster-role-test",
+              "SCOPE": "namespace"
+            },
+            "id": "pageState",
+            "type": "crd-page-state"
+          }
+        ],
+        "meta": {
+          "id": "inspecttask-cluster-cluster-role-test",
+          "name": "inspecttask-cluster-cluster-role-test",
+          "path": "/inspecttask-cluster-cluster-role-test",
+          "title": "Role"
+        },
+        "root": {
+          "id": "inspecttask-cluster-cluster-role-test-root",
+          "meta": {
+            "scope": true,
+            "title": "CrdTable"
+          },
+          "props": {
+            "AUTH_KEY": "inspecttask",
+            "COLUMNS": {
+              "bind": "columns",
+              "source": "columns",
+              "type": "binding"
+            },
+            "CREATE": {
+              "bind": "create",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "CREATE_INITIAL_VALUE": {
+              "apiVersion": "iam.kubesphere.io/v1beta1",
+              "kind": "Role",
+              "metadata": {
+                "annotations": {},
+                "labels": {},
+                "name": "",
+                "namespace": ""
+              },
+              "spec": {}
+            },
+            "DATA": {
+              "bind": "data",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "DEL": {
+              "bind": "del",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "IS_LOADING": {
+              "bind": "loading",
+              "defaultValue": false,
+              "source": "pageState",
+              "type": "binding"
+            },
+            "PAGE_CONTEXT": {
+              "bind": "pageContext",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "PARAMS": {
+              "bind": "params",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "REFETCH": {
+              "bind": "refetch",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "TABLE_KEY": "inspecttask-cluster-cluster-role-test",
+            "TITLE": "Role",
+            "TOOLBAR_LEFT": {
+              "bind": "toolbarLeft",
+              "source": "pageState",
+              "type": "binding"
+            },
+            "UPDATE": {
+              "bind": "update",
+              "source": "pageState",
+              "type": "binding"
+            }
+          },
+          "type": "CrdTable"
+        }
+      },
+      "entryComponent": "inspecttask-cluster-cluster-role-test",
+      "id": "inspecttask-cluster-cluster-role-test"
+    }
+  ],
+  "routes": [
+    {
+      "pageId": "inspecttask-workspace-role-test",
+      "path": "/workspaces/:workspace/frontendextensions/inspecttask/role-test"
+    },
+    {
+      "pageId": "inspecttask-cluster-cluster-role-test",
+      "path": "/clusters/:cluster/frontendextensions/inspecttask/cluster-role-test"
+    }
+  ],
+  "version": "1.0"
+}

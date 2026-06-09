@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM rust:1-bookworm AS rust-builder
 
 WORKDIR /workspace
@@ -6,7 +8,7 @@ COPY crates ./crates
 COPY apps/forge-job ./apps/forge-job
 RUN cargo build --release -p forge-job
 
-FROM node:20-bookworm-slim AS node-deps
+FROM node:22-bookworm-slim AS node-deps
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -23,12 +25,24 @@ COPY packages/forge-components/package.json ./packages/forge-components/package.
 COPY packages/forge-core/package.json ./packages/forge-core/package.json
 COPY packages/project-generator/package.json ./packages/project-generator/package.json
 COPY packages/vendor/package.json ./packages/vendor/package.json
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=secret,id=npm_auth_base64 \
+    set -eu; \
+    cleanup() { \
+      pnpm config delete "//internal-registry.npm.kubesphere.com.cn/:_auth" >/dev/null 2>&1 || true; \
+      pnpm config delete "//internal-registry.npm.kubesphere.com.cn/:always-auth" >/dev/null 2>&1 || true; \
+    }; \
+    trap cleanup EXIT; \
+    if [ -f /run/secrets/npm_auth_base64 ]; then \
+      NPM_AUTH_BASE64="$(cat /run/secrets/npm_auth_base64)"; \
+      pnpm config set "//internal-registry.npm.kubesphere.com.cn/:_auth" "$NPM_AUTH_BASE64"; \
+      pnpm config set "//internal-registry.npm.kubesphere.com.cn/:always-auth" true; \
+    fi; \
+    pnpm install --frozen-lockfile
 
 COPY packages/forge-components ./packages/forge-components
 RUN pnpm --filter @frontend-forge/forge-components build
 
-FROM node:20-bookworm-slim AS runtime
+FROM node:22-bookworm-slim AS runtime
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"

@@ -1069,6 +1069,46 @@ mod tests {
     }
 
     #[test]
+    fn bind_selects_data_source_output_without_repeating_path() {
+        let raw = serde_json::json!({
+          "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+          "dataSources": [
+            {
+              "id": "pageState",
+              "type": "crd-page-state",
+              "config": {
+                "PAGE_ID": "sample-page",
+                "CRD_CONFIG": { "plural": "widgets", "group": "example.io" }
+              }
+            }
+          ],
+          "root": {
+            "id": "root",
+            "meta": { "scope": true, "title": "SamplePage" },
+            "type": "Layout",
+            "props": {
+              "TEXT": {
+                "type": "binding",
+                "source": "pageState",
+                "bind": "pageContext"
+              }
+            }
+          },
+          "context": {}
+        });
+        let page = unwrap_page_schema(raw).unwrap();
+        let code = ComponentGenerator::default()
+            .generate_page_code(&page)
+            .unwrap();
+        assert_code_contains(
+            &code,
+            "const { pageContext: pageStatePageContext } = usePageState();",
+        );
+        assert_code_contains(&code, "pageStatePageContext ?? undefined");
+        assert_code_not_contains(&code, "pageStatePageContext?.pageContext");
+    }
+
+    #[test]
     fn renders_data_source_hook_name_as_identifier() {
         let raw = serde_json::json!({
           "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },

@@ -687,9 +687,19 @@ impl Versions {
             node: command_version("node", &["--version"])
                 .map(|value| value.trim_start_matches('v').to_owned())
                 .unwrap_or_else(|| "unknown".into()),
-            pnpm: command_version("pnpm", &["--version"]).unwrap_or_else(|| "unknown".into()),
+            pnpm: detect_pnpm_version().unwrap_or_else(|| "unknown".into()),
         }
     }
+}
+
+fn detect_pnpm_version() -> Option<String> {
+    if let Ok(value) = env::var("FORGE_PNPM_VERSION") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_owned());
+        }
+    }
+    command_version("pnpm", &["--version"])
 }
 
 fn detect_forge_components_version() -> Option<String> {

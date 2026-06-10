@@ -4,11 +4,11 @@ use indexmap::{IndexMap, IndexSet};
 use serde_json::Value;
 
 use crate::error::{Error, Result};
-use crate::model::{ActionGraphSchema, ActionStep, DataSourceNode};
+use crate::model::{ActionGraphSchema, ActionStep, ComponentNode, DataSourceNode};
 use crate::registry::RenderContext;
 use crate::value::{
-    ActionGraphBindingInfo, BindingContext, BindingUse, camel_case, expr_to_code, pascal_case,
-    resolve_binding_output_var_name,
+    ActionGraphBindingInfo, BindingContext, BindingUse, DataSourceActionMode, DataSourceCallMode,
+    camel_case, expr_to_code, pascal_case, resolve_binding_output_var_name,
 };
 
 #[derive(Default)]
@@ -93,6 +93,42 @@ impl ActionGraphPlan {
         }
     }
 
+    pub fn validate(&self, root: &ComponentNode, bindings: &BindingContext) -> Result<()> {
+        let node_ids = collect_node_ids(root);
+        for (graph_id, graph) in &self.graphs {
+            for (action_id, action) in &graph.actions {
+                let (node_id, _) = parse_trigger(graph_id, &action.on)?;
+                if !node_ids.contains(node_id.as_str()) {
+                    return Err(Error::ActionGraphTargetNodeNotFound {
+                        graph_id: graph_id.clone(),
+                        action_id: action_id.clone(),
+                        node_id,
+                    });
+                }
+                for step in &action.steps {
+                    let ActionStep::CallDataSource { id, .. } = step else {
+                        continue;
+                    };
+                    let Some(info) = bindings.data_sources.get(id) else {
+                        return Err(Error::ActionGraphDataSourceNotFound {
+                            graph_id: graph_id.clone(),
+                            action_id: action_id.clone(),
+                            data_source_id: id.clone(),
+                        });
+                    };
+                    if info.call_mode != DataSourceCallMode::Hook {
+                        return Err(Error::ActionGraphDataSourceNotCallable {
+                            graph_id: graph_id.clone(),
+                            action_id: action_id.clone(),
+                            data_source_id: id.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn binding_uses_for_graphs(&self, graph_ids: &IndexSet<String>) -> Vec<BindingUse> {
         let mut out = Vec::new();
         for graph_id in graph_ids {
@@ -166,6 +202,19 @@ impl ActionGraphPlan {
             )?);
         }
         Ok(stats)
+    }
+}
+
+fn collect_node_ids(root: &ComponentNode) -> IndexSet<&str> {
+    let mut ids = IndexSet::new();
+    collect_node_ids_inner(root, &mut ids);
+    ids
+}
+
+fn collect_node_ids_inner<'a>(node: &'a ComponentNode, ids: &mut IndexSet<&'a str>) {
+    ids.insert(node.id.as_str());
+    for child in &node.children {
+        collect_node_ids_inner(child, ids);
     }
 }
 
@@ -336,18 +385,22 @@ fn build_call_data_source_stat(
                 let data_source = data_sources_by_id
                     .get(id.as_str())
                     .ok_or_else(|| Error::BindingSourceNotFound { id: id.clone() })?;
-                if let Some(binding) = bindings.data_sources.get(id) {
+                let binding = bindings.data_sources.get(id);
+                if let Some(binding) = binding {
                     mutate_entries.insert(format!(
                         r#""{id}": {}"#,
                         resolve_binding_output_var_name(binding, "mutate")
                     ));
                 }
-                match data_source.ty.as_str() {
-                    "static" => {
+                match binding
+                    .map(|binding| binding.action_mode)
+                    .unwrap_or(DataSourceActionMode::Mutate)
+                {
+                    DataSourceActionMode::Set => {
                         mode_entries.insert(format!(r#""{id}": "set""#));
                         handler_entries.insert(format!(r#""{id}": (payload, env) => payload"#));
                     }
-                    "rest" => {
+                    DataSourceActionMode::Request => {
                         mode_entries.insert(format!(r#""{id}": "request""#));
                         handler_entries.insert(format!(
                             r#""{id}": (payload, env) => {{
@@ -373,7 +426,7 @@ fn build_call_data_source_stat(
                             headers = config_expr(data_source, "HEADERS", "undefined")?,
                         ));
                     }
-                    _ => {
+                    DataSourceActionMode::Mutate => {
                         mode_entries.insert(format!(r#""{id}": "mutate""#));
                     }
                 }

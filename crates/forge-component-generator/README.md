@@ -29,7 +29,7 @@ Rust component generator for Frontend Forge.
 - Resolves basic `runtime` bindings and injects `useRuntimeContext` plus `const __runtime__ = useRuntimeContext();` in the owning scoped component.
 - Orders runtime initialization before data source hooks whose args read runtime values.
 - Provides a `DataSourceSource` structure for TypeScript-style data source templates. Registered data sources now use this path, including identifier replacement for `HOOK_NAME` and template defaults such as `PAGE_ID`, `SCOPE`, and `CRD_CONFIG`.
-- Supports a basic `actionGraphs` pipeline: parses graph schemas, injects event handler props such as `ON_CLICK`, creates per-graph context stores, and emits dispatch code for `assign`, `reset`, `navigate`, `goBack`, and `callDataSource`. `callDataSource` now distinguishes `static` set mode, `rest` request mode, and a generic mutate fallback for other data source types.
+- Supports a basic `actionGraphs` pipeline: parses graph schemas, validates trigger targets and `callDataSource` targets before rendering, injects event handler props such as `ON_CLICK`, creates per-graph context stores, and emits dispatch code for `assign`, `reset`, `navigate`, `goBack`, and `callDataSource`. `callDataSource` uses each data source definition's declared action mode: set, request, or generic mutate fallback.
 - Supports action graph context bindings in node props, for example `target: "context", source: "formGraph", path: "name"`.
 - Keeps explicit node event props authoritative when action graph handlers target the same prop.
 - Reports ambiguous binding sources when the same id exists as both a data source and an action graph and the binding does not specify `target`.

@@ -133,6 +133,31 @@ pub enum Error {
     #[snafu(display("actionGraph not found: {id}"))]
     ActionGraphNotFound { id: String },
 
+    #[snafu(display("actionGraph {graph_id}.{action_id} targets missing node {node_id}"))]
+    ActionGraphTargetNodeNotFound {
+        graph_id: String,
+        action_id: String,
+        node_id: String,
+    },
+
+    #[snafu(display(
+        "actionGraph {graph_id}.{action_id} calls missing data source {data_source_id}"
+    ))]
+    ActionGraphDataSourceNotFound {
+        graph_id: String,
+        action_id: String,
+        data_source_id: String,
+    },
+
+    #[snafu(display(
+        "actionGraph {graph_id}.{action_id} cannot call non-hook data source {data_source_id}"
+    ))]
+    ActionGraphDataSourceNotCallable {
+        graph_id: String,
+        action_id: String,
+        data_source_id: String,
+    },
+
     #[snafu(display("binding source {source_id} is ambiguous (dataSource and actionGraph)"))]
     AmbiguousBindingSource { source_id: String },
 

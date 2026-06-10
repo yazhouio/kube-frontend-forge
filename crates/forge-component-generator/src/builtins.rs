@@ -3,6 +3,7 @@ use crate::registry::{
     NodeSourceGenerateCode, NodeSourceMeta, NodeSourceSchema, Registry, StatSource, StatementScope,
     TemplateDefault, TemplateInput, TemplateOutput,
 };
+use crate::value::DataSourceActionMode;
 
 pub fn default_registry() -> Registry {
     let mut registry = Registry::default();
@@ -221,6 +222,7 @@ fn static_data_source() -> DataSourceSource {
             defaults: [("DATA", TemplateDefault::Expr("null"))]
                 .into_iter()
                 .collect(),
+            action_mode: DataSourceActionMode::Set,
             ..DataSourceSourceGenerateCode::default()
         },
     )
@@ -291,6 +293,7 @@ fn rest_data_source() -> DataSourceSource {
             ]
             .into_iter()
             .collect(),
+            action_mode: DataSourceActionMode::Request,
             ..DataSourceSourceGenerateCode::default()
         },
     )

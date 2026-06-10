@@ -52,6 +52,7 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
         let action_graphs = ActionGraphPlan::new(&page.action_graphs)?;
         let mut bindings = self.build_binding_context(page)?;
         action_graphs.add_to_binding_context(&mut bindings);
+        action_graphs.validate(&page.root, &bindings)?;
         let mut ctx = RenderContext {
             bindings,
             ..RenderContext::default()
@@ -394,6 +395,7 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
                         .map(|output| (*output).to_owned())
                         .collect(),
                     call_mode: definition.call_mode(),
+                    action_mode: definition.action_mode(),
                     args: Vec::new(),
                     arg_binding_uses: Vec::new(),
                 },
@@ -710,6 +712,7 @@ mod tests {
         NodeSourceGenerateCode, NodeSourceMeta, Registry, StatSource, StatementScope,
         TemplateOutput,
     };
+    use crate::value::{DataSourceActionMode, DataSourceCallMode};
 
     fn compact_code(value: &str) -> String {
         value.chars().filter(|ch| !ch.is_whitespace()).collect()
@@ -2096,6 +2099,232 @@ mod tests {
         assert_code_contains(&code, r#""draft": "set""#);
         assert_code_contains(&code, r#""draft": (payload, env)=>payload"#);
         assert_code_contains(&code, r#"if (mode === "set" && mutate)"#);
+    }
+
+    #[test]
+    fn action_graph_reports_missing_target_node_before_rendering() {
+        let raw = serde_json::json!({
+          "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+          "root": {
+            "id": "root",
+            "meta": { "scope": true, "title": "SamplePage" },
+            "type": "Layout",
+            "props": { "TEXT": "Hello" }
+          },
+          "actionGraphs": [
+            {
+              "id": "formGraph",
+              "actions": {
+                "SAVE": {
+                  "on": "missing-button.click",
+                  "do": []
+                }
+              }
+            }
+          ],
+          "context": {}
+        });
+        let page = unwrap_page_schema(raw).unwrap();
+        let err = ComponentGenerator::default()
+            .generate_page_code(&page)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            Error::ActionGraphTargetNodeNotFound {
+                graph_id,
+                action_id,
+                node_id
+            } if graph_id == "formGraph" && action_id == "SAVE" && node_id == "missing-button"
+        ));
+    }
+
+    #[test]
+    fn action_graph_reports_missing_called_data_source_before_rendering() {
+        let raw = serde_json::json!({
+          "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+          "root": {
+            "id": "button-save",
+            "meta": { "scope": true, "title": "SamplePage" },
+            "type": "MissingRenderer",
+            "props": {}
+          },
+          "actionGraphs": [
+            {
+              "id": "formGraph",
+              "actions": {
+                "SAVE": {
+                  "on": "button-save.click",
+                  "do": [
+                    { "type": "callDataSource", "id": "missing-source" }
+                  ]
+                }
+              }
+            }
+          ],
+          "context": {}
+        });
+        let page = unwrap_page_schema(raw).unwrap();
+        let err = ComponentGenerator::default()
+            .generate_page_code(&page)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            Error::ActionGraphDataSourceNotFound {
+                graph_id,
+                action_id,
+                data_source_id
+            } if graph_id == "formGraph" && action_id == "SAVE" && data_source_id == "missing-source"
+        ));
+    }
+
+    #[test]
+    fn action_graph_uses_data_source_declared_action_mode() {
+        let mut registry = crate::builtins::default_registry();
+        registry.register_node(NodeSource::new(
+            "Button",
+            NodeSourceGenerateCode {
+                jsx: Some("<button onClick={%%ON_CLICK%%}>{%%LABEL%%}</button>"),
+                meta: Some(NodeSourceMeta {
+                    input_paths: [("$jsx", vec!["ON_CLICK", "LABEL"])].into_iter().collect(),
+                    runtime_deps: Vec::new(),
+                }),
+                ..NodeSourceGenerateCode::default()
+            },
+        ));
+        registry.register_data_source(
+            DataSourceSource::new(
+                "custom-request",
+                DataSourceSourceGenerateCode {
+                    stats: vec![StatSource {
+                        id: "hookDecl",
+                        scope: StatementScope::ModuleDecl,
+                        code: r#"const %%HOOK_NAME%% = () => ({ data: null, error: null, isLoading: false, mutate: (effect) => typeof effect === "function" ? effect() : effect });"#,
+                        output: vec!["HOOK_NAME"],
+                        depends: vec![],
+                    }],
+                    meta: Some(NodeSourceMeta {
+                        input_paths: [("hookDecl", vec!["HOOK_NAME"])].into_iter().collect(),
+                        runtime_deps: Vec::new(),
+                    }),
+                    action_mode: DataSourceActionMode::Request,
+                    ..DataSourceSourceGenerateCode::default()
+                },
+            )
+            .with_schema(DataSourceSourceSchema {
+                template_inputs: Default::default(),
+                outputs: [
+                    ("data", TemplateOutput { ty: "object" }),
+                    ("mutate", TemplateOutput { ty: "object" }),
+                ]
+                .into_iter()
+                .collect(),
+            }),
+        );
+
+        let raw = serde_json::json!({
+          "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+          "dataSources": [
+            {
+              "id": "custom",
+              "type": "custom-request",
+              "config": {
+                "URL": "/api/custom",
+                "METHOD": "POST"
+              }
+            }
+          ],
+          "root": {
+            "id": "button-submit",
+            "meta": { "scope": true, "title": "SamplePage" },
+            "type": "Button",
+            "props": { "LABEL": "Submit" }
+          },
+          "actionGraphs": [
+            {
+              "id": "formGraph",
+              "context": { "name": "Ada" },
+              "actions": {
+                "SUBMIT": {
+                  "on": "button-submit.click",
+                  "do": [
+                    { "type": "callDataSource", "id": "custom", "args": ["context.name"] }
+                  ]
+                }
+              }
+            }
+          ],
+          "context": {}
+        });
+        let page = unwrap_page_schema(raw).unwrap();
+        let code = ComponentGenerator::new(registry)
+            .generate_page_code(&page)
+            .unwrap();
+        assert_code_contains(&code, r#""custom": "request""#);
+        assert_code_contains(&code, r#"const url = "/api/custom";"#);
+        assert_code_contains(&code, r#"const method = ("POST" || "GET").toUpperCase();"#);
+    }
+
+    #[test]
+    fn action_graph_rejects_non_hook_data_source_calls() {
+        let mut registry = Registry::default();
+        registry.register_data_source(
+            DataSourceSource::new(
+                "value-source",
+                DataSourceSourceGenerateCode {
+                    call_mode: DataSourceCallMode::Value,
+                    ..DataSourceSourceGenerateCode::default()
+                },
+            )
+            .with_schema(DataSourceSourceSchema {
+                template_inputs: Default::default(),
+                outputs: [("data", TemplateOutput { ty: "object" })]
+                    .into_iter()
+                    .collect(),
+            }),
+        );
+
+        let raw = serde_json::json!({
+          "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+          "dataSources": [
+            {
+              "id": "value",
+              "type": "value-source",
+              "config": {}
+            }
+          ],
+          "root": {
+            "id": "button-save",
+            "meta": { "scope": true, "title": "SamplePage" },
+            "type": "MissingRenderer",
+            "props": {}
+          },
+          "actionGraphs": [
+            {
+              "id": "formGraph",
+              "actions": {
+                "SAVE": {
+                  "on": "button-save.click",
+                  "do": [
+                    { "type": "callDataSource", "id": "value" }
+                  ]
+                }
+              }
+            }
+          ],
+          "context": {}
+        });
+        let page = unwrap_page_schema(raw).unwrap();
+        let err = ComponentGenerator::new(registry)
+            .generate_page_code(&page)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            Error::ActionGraphDataSourceNotCallable {
+                graph_id,
+                action_id,
+                data_source_id
+            } if graph_id == "formGraph" && action_id == "SAVE" && data_source_id == "value"
+        ));
     }
 
     #[test]

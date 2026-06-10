@@ -9,7 +9,7 @@ use crate::imports::ImportRegistry;
 use crate::model::{ComponentNode, DataSourceNode};
 use crate::names::{NameAllocator, sanitize_ident};
 use crate::value::{
-    BindingContext, BindingUse, DataSourceCallMode, collect_binding_uses,
+    BindingContext, BindingUse, DataSourceActionMode, DataSourceCallMode, collect_binding_uses,
     value_to_expr_code_with_context,
 };
 
@@ -390,6 +390,9 @@ pub trait DataSourceDefinition: Send + Sync {
     fn call_mode(&self) -> DataSourceCallMode {
         DataSourceCallMode::Hook
     }
+    fn action_mode(&self) -> DataSourceActionMode {
+        DataSourceActionMode::Mutate
+    }
     fn validate_templates(&self, _backend: &dyn JsCodeBackend) -> Result<()> {
         Ok(())
     }
@@ -434,6 +437,7 @@ pub struct DataSourceSourceGenerateCode {
     pub stats: Vec<StatSource>,
     pub meta: Option<NodeSourceMeta>,
     pub call_mode: DataSourceCallMode,
+    pub action_mode: DataSourceActionMode,
     pub defaults: IndexMap<&'static str, TemplateDefault>,
 }
 
@@ -616,6 +620,10 @@ impl DataSourceDefinition for DataSourceSource {
 
     fn call_mode(&self) -> DataSourceCallMode {
         self.generate_code.call_mode
+    }
+
+    fn action_mode(&self) -> DataSourceActionMode {
+        self.generate_code.action_mode
     }
 
     fn validate_templates(&self, backend: &dyn JsCodeBackend) -> Result<()> {

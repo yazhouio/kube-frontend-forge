@@ -24,6 +24,7 @@ pub struct DataSourceBindingInfo {
     pub base_name: String,
     pub output_names: Vec<String>,
     pub call_mode: DataSourceCallMode,
+    pub action_mode: DataSourceActionMode,
     pub args: Vec<String>,
     pub arg_binding_uses: Vec<BindingUse>,
 }
@@ -38,6 +39,14 @@ impl Default for DataSourceCallMode {
     fn default() -> Self {
         Self::Hook
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DataSourceActionMode {
+    Set,
+    Request,
+    #[default]
+    Mutate,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

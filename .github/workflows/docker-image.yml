@@ -20,6 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      matrix:
+        target:
+          - prod
+          - dev
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,8 +45,9 @@ jobs:
         with:
           context: .
           file: crates/forge-job/Dockerfile
+          target: ${{ matrix.target }}
           push: false
-          tags: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
+          tags: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}-${{ matrix.target }}
 
   build-release-image:
     name: Build and push release image
@@ -87,10 +93,31 @@ jobs:
         with:
           context: .
           file: crates/forge-job/Dockerfile
+          target: prod
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Generate dev image metadata
+        id: meta-dev
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ github.event.release.tag_name }}-dev
+            type=raw,value=latest-dev,enable=${{ github.event.release.prerelease == false }}
+
+      - name: Build and push dev Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: crates/forge-job/Dockerfile
+          target: dev
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-dev.outputs.tags }}
+          labels: ${{ steps.meta-dev.outputs.labels }}
 
   build-branch-image:
     name: Build and push branch image
@@ -136,7 +163,28 @@ jobs:
         with:
           context: .
           file: crates/forge-job/Dockerfile
+          target: prod
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Generate dev image metadata
+        id: meta-dev
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch,suffix=-dev
+            type=sha,prefix={{branch}}-,suffix=-dev
+
+      - name: Build and push dev Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: crates/forge-job/Dockerfile
+          target: dev
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-dev.outputs.tags }}
+          labels: ${{ steps.meta-dev.outputs.labels }}

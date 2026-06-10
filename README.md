@@ -89,8 +89,19 @@ Build the Job image:
 ```bash
 NPM_AUTH_BASE64='***' docker build \
   -f crates/forge-job/Dockerfile \
+  --target prod \
   --secret id=npm_auth_base64,env=NPM_AUTH_BASE64 \
-  -t frontend-forge-job:full-smoke .
+  -t frontend-forge-job:prod .
+```
+
+Build the shell-friendly debug image:
+
+```bash
+NPM_AUTH_BASE64='***' docker build \
+  -f crates/forge-job/Dockerfile \
+  --target dev \
+  --secret id=npm_auth_base64,env=NPM_AUTH_BASE64 \
+  -t frontend-forge-job:dev .
 ```
 
 Run a smoke test:
@@ -103,7 +114,7 @@ cp examples/full.json .tmp/full-flow/docker-input/manifest.json
 docker run --rm \
   -v /Users/yazhou/code/frontend-forge/.tmp/full-flow/docker-input:/input:ro \
   -v /Users/yazhou/code/frontend-forge/.tmp/full-flow/docker-out:/output \
-  frontend-forge-job:full-smoke \
+  frontend-forge-job:prod \
   build --input /input/manifest.json --out-dir /output --emit-project-archive true
 ```
 

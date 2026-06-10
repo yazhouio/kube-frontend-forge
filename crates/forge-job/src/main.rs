@@ -143,15 +143,7 @@ fn run_rollup_build(project_dir: &Path) -> Result<()> {
         .map(Duration::from_millis)
         .unwrap_or_else(|| Duration::from_millis(30_000));
 
-    let mut command = if let Ok(rollup_bin) = env::var("FORGE_ROLLUP_BIN") {
-        let mut command = Command::new(rollup_bin);
-        command.arg("-c");
-        command
-    } else {
-        let mut command = Command::new("pnpm");
-        command.args(["exec", "rollup", "-c"]);
-        command
-    };
+    let mut command = rollup_command(&["-c"]);
     let command_label = "rollup -c".to_owned();
 
     let mut child = command
@@ -684,12 +676,21 @@ impl Versions {
             forge_job: env!("CARGO_PKG_VERSION").to_owned(),
             forge_components: detect_forge_components_version().unwrap_or_else(|| "unknown".into()),
             rollup: detect_rollup_version().unwrap_or_else(|| "unknown".into()),
-            node: command_version("node", &["--version"])
-                .map(|value| value.trim_start_matches('v').to_owned())
-                .unwrap_or_else(|| "unknown".into()),
+            node: detect_node_version().unwrap_or_else(|| "unknown".into()),
             pnpm: detect_pnpm_version().unwrap_or_else(|| "unknown".into()),
         }
     }
+}
+
+fn detect_node_version() -> Option<String> {
+    if let Ok(value) = env::var("FORGE_NODE_VERSION") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.trim_start_matches('v').to_owned());
+        }
+    }
+    let command = env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into());
+    command_version(&command, &["--version"]).map(|value| value.trim_start_matches('v').to_owned())
 }
 
 fn detect_pnpm_version() -> Option<String> {
@@ -740,15 +741,39 @@ fn find_upwards(rel_path: &str) -> Vec<PathBuf> {
 }
 
 fn detect_rollup_version() -> Option<String> {
-    let output = if let Ok(rollup_bin) = env::var("FORGE_ROLLUP_BIN") {
-        command_version(&rollup_bin, &["--version"])
-    } else {
-        command_version("pnpm", &["exec", "rollup", "--version"])
-    }?;
+    let output = rollup_command_output(&["--version"])?;
     if let Some(rest) = output.strip_prefix("rollup v") {
         return Some(rest.split_whitespace().next().unwrap_or(rest).to_owned());
     }
     Some(output)
+}
+
+fn rollup_command(args: &[&str]) -> Command {
+    if let Ok(rollup_js) = env::var("FORGE_ROLLUP_JS") {
+        let mut command =
+            Command::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()));
+        command.arg(rollup_js);
+        command.args(args);
+        return command;
+    }
+    if let Ok(rollup_bin) = env::var("FORGE_ROLLUP_BIN") {
+        let mut command = Command::new(rollup_bin);
+        command.args(args);
+        return command;
+    }
+    let mut command = Command::new("pnpm");
+    command.args(["exec", "rollup"]);
+    command.args(args);
+    command
+}
+
+fn rollup_command_output(args: &[&str]) -> Option<String> {
+    let output = rollup_command(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if text.is_empty() { None } else { Some(text) }
 }
 
 fn command_version(command: &str, args: &[&str]) -> Option<String> {

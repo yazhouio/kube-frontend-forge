@@ -781,6 +781,7 @@ mod tests {
         assert!(rollup_config.content.contains("'react'"));
         assert!(!rollup_config.content.contains("'zustand'"));
         assert!(rollup_config.content.contains("replaceNodeEnv()"));
+        assert!(rollup_config.content.contains("terser("));
         assert!(rollup_config.content.contains("process.env.NODE_ENV"));
         assert!(rollup_config.content.contains("format: 'system'"));
         assert!(!rollup_config.content.contains("__MODULE_NAME_JSON__"));

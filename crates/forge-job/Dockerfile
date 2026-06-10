@@ -44,17 +44,35 @@ RUN pnpm --config.inject-workspace-packages=true --filter @frontend-forge/forge-
     && rm -rf /runtime/forge-job/node_modules/.pnpm/*win32* \
     && rm -rf /runtime/forge-job/node_modules/.pnpm/*musl*
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-bookworm-slim AS dev
 
 ENV NODE_ENV="production"
 ENV FORGE_NODE_MODULES_DIR="/app/node_modules"
 ENV FORGE_ROLLUP_BIN="/app/node_modules/.bin/rollup"
 ENV FORGE_COMPONENTS_PACKAGE_JSON="/app/node_modules/@frontend-forge/forge-components/package.json"
 ENV FORGE_PNPM_VERSION="11.1.0"
+ENV FORGE_NODE_VERSION="22.22.3"
 
 WORKDIR /app
 COPY --from=rust-builder /workspace/target/release/frontend-forge-job /usr/local/bin/frontend-forge-job
 COPY --from=node-deps /runtime/forge-job/node_modules ./node_modules
 
 ENTRYPOINT ["frontend-forge-job"]
+CMD ["build", "--input", "/input/manifest.json", "--out-dir", "/output"]
+
+FROM gcr.io/distroless/nodejs22-debian12 AS prod
+
+ENV NODE_ENV="production"
+ENV FORGE_NODE_MODULES_DIR="/app/node_modules"
+ENV FORGE_COMPONENTS_PACKAGE_JSON="/app/node_modules/@frontend-forge/forge-components/package.json"
+ENV FORGE_PNPM_VERSION="11.1.0"
+ENV FORGE_NODE_VERSION="22.22.3"
+ENV FORGE_NODE_BIN="/nodejs/bin/node"
+ENV FORGE_ROLLUP_JS="/app/node_modules/rollup/dist/bin/rollup"
+
+WORKDIR /app
+COPY --from=rust-builder /workspace/target/release/frontend-forge-job /usr/local/bin/frontend-forge-job
+COPY --from=node-deps /runtime/forge-job/node_modules ./node_modules
+
+ENTRYPOINT ["/usr/local/bin/frontend-forge-job"]
 CMD ["build", "--input", "/input/manifest.json", "--out-dir", "/output"]

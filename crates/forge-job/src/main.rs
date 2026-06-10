@@ -36,13 +36,13 @@ fn run() -> Result<()> {
 
 fn run_page_code(args: InputOutputArgs) -> Result<()> {
     let value = read_json(&args.input)?;
-    let code = ForgeCore::new().generate_page_code(value)?;
+    let code = ForgeCore::try_new()?.generate_page_code(value)?;
     write_text_or_stdout(args.out, &code)
 }
 
 fn run_project_files(args: InputOutputArgs) -> Result<()> {
     let manifest = read_manifest(&args.input)?;
-    let result = ForgeCore::new().generate_project_files(&manifest)?;
+    let result = ForgeCore::try_new()?.generate_project_files(&manifest)?;
     let output = serde_json::to_string_pretty(&result).context(SerializeJsonSnafu)?;
     write_text_or_stdout(args.out, &(output + "\n"))
 }
@@ -71,7 +71,7 @@ fn run_build(args: BuildArgs) -> Result<()> {
         });
 
         let plan_started = Instant::now();
-        let plan = ForgeCore::new().create_build_plan(&manifest)?;
+        let plan = ForgeCore::try_new()?.create_build_plan(&manifest)?;
         timings.plan_ms = elapsed_ms(plan_started);
         warnings.extend(plan.warnings.clone());
 

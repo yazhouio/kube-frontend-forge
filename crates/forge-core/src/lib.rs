@@ -41,13 +41,17 @@ impl Default for ForgeCore {
 }
 
 impl ForgeCore {
-    pub fn new() -> Self {
-        Self {
-            component_generator: ComponentGenerator::with_backend(
+    pub fn try_new() -> Result<Self> {
+        Ok(Self {
+            component_generator: ComponentGenerator::try_with_backend(
                 default_registry(),
                 forge_component_generator::OxcCodeBackend,
-            ),
-        }
+            )?,
+        })
+    }
+
+    pub fn new() -> Self {
+        Self::try_new().expect("forge core component generator registry must be valid")
     }
 
     pub fn generate_page_code(&self, page_schema: Value) -> Result<String> {

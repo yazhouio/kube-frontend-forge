@@ -1,5 +1,6 @@
 mod error;
 mod runtime_contract;
+mod schema;
 mod types;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -17,6 +18,7 @@ pub use runtime_contract::{
     BuildConfigSummary, EXTERNAL_PACKAGES, PackageDependency, TreeShakingSummary,
     build_config_summary,
 };
+pub use schema::manifest_schema;
 pub use types::{
     BuildMeta, ExtensionManifest, GenerateProjectFilesOptions, GenerateProjectFilesResult,
     LocaleMeta, ManifestEnvelope, MenuMeta, PageMeta, RouteMeta, VirtualFile,

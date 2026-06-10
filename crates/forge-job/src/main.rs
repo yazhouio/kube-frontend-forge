@@ -31,6 +31,7 @@ fn run() -> Result<()> {
         CommandArgs::Build(args) => run_build(args),
         CommandArgs::PageCode(args) => run_page_code(args),
         CommandArgs::ProjectFiles(args) => run_project_files(args),
+        CommandArgs::Schema(args) => run_schema(args),
     }
 }
 
@@ -45,6 +46,21 @@ fn run_project_files(args: InputOutputArgs) -> Result<()> {
     let result = ForgeCore::try_new()?.generate_project_files(&manifest)?;
     let output = serde_json::to_string_pretty(&result).context(SerializeJsonSnafu)?;
     write_text_or_stdout(args.out, &(output + "\n"))
+}
+
+fn run_schema(args: SchemaArgs) -> Result<()> {
+    fs::create_dir_all(&args.out_dir).context(CreateDirSnafu {
+        path: args.out_dir.clone(),
+    })?;
+    let core = ForgeCore::try_new()?;
+    write_json_file(
+        &args.out_dir.join("component-tree.schema.json"),
+        &core.component_tree_schema(),
+    )?;
+    write_json_file(
+        &args.out_dir.join("manifest.schema.json"),
+        &core.manifest_schema(),
+    )
 }
 
 fn run_build(args: BuildArgs) -> Result<()> {
@@ -285,6 +301,7 @@ fn strip_js_comments(input: &str) -> String {
 
 fn read_manifest(path: &Path) -> Result<ExtensionManifest> {
     let value = read_json(path)?;
+    validate_manifest_json(path, &value)?;
     unwrap_manifest(value).map_err(Error::from)
 }
 
@@ -293,6 +310,27 @@ fn read_json(path: &Path) -> Result<serde_json::Value> {
         path: path.to_path_buf(),
     })?;
     serde_json::from_str(&raw).context(ParseJsonSnafu {
+        path: path.to_path_buf(),
+    })
+}
+
+fn validate_manifest_json(path: &Path, value: &serde_json::Value) -> Result<()> {
+    let schema = ForgeCore::try_new()?.manifest_schema();
+    let validator = jsonschema::validator_for(&schema).map_err(|err| Error::SchemaCompile {
+        schema: "manifest.schema.json",
+        message: err.to_string(),
+    })?;
+    validator
+        .validate(value)
+        .map_err(|err| Error::SchemaValidation {
+            path: path.to_path_buf(),
+            message: err.to_string(),
+        })
+}
+
+fn write_json_file(path: &Path, value: &serde_json::Value) -> Result<()> {
+    let output = serde_json::to_string_pretty(value).context(SerializeJsonSnafu)? + "\n";
+    fs::write(path, output).context(WriteFileSnafu {
         path: path.to_path_buf(),
     })
 }
@@ -559,6 +597,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<ParsedArgs> {
         "build" => CommandArgs::Build(parse_build_args(args)?),
         "page-code" => CommandArgs::PageCode(parse_input_output_args(args)?),
         "project-files" => CommandArgs::ProjectFiles(parse_input_output_args(args)?),
+        "schema" => CommandArgs::Schema(parse_schema_args(args)?),
         _ => return Err(Error::UnknownCommand { command }),
     };
     Ok(ParsedArgs { command })
@@ -627,6 +666,26 @@ fn parse_input_output_args(args: impl IntoIterator<Item = String>) -> Result<Inp
     })
 }
 
+fn parse_schema_args(args: impl IntoIterator<Item = String>) -> Result<SchemaArgs> {
+    let mut out_dir = None;
+    let mut args = args.into_iter();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--out-dir" => {
+                out_dir = Some(PathBuf::from(
+                    args.next().ok_or(Error::MissingArgValue { arg })?,
+                ));
+            }
+            _ => return Err(Error::UnknownArgument { arg }),
+        }
+    }
+
+    Ok(SchemaArgs {
+        out_dir: out_dir.ok_or(Error::MissingRequiredArg { arg: "--out-dir" })?,
+    })
+}
+
 fn env_bool(name: &str) -> Option<bool> {
     env::var(name).ok().and_then(|value| parse_bool(&value))
 }
@@ -657,6 +716,7 @@ enum CommandArgs {
     Build(BuildArgs),
     PageCode(InputOutputArgs),
     ProjectFiles(InputOutputArgs),
+    Schema(SchemaArgs),
 }
 
 #[derive(Debug)]
@@ -670,6 +730,11 @@ struct BuildArgs {
 struct InputOutputArgs {
     input: PathBuf,
     out: Option<PathBuf>,
+}
+
+#[derive(Debug)]
+struct SchemaArgs {
+    out_dir: PathBuf,
 }
 
 struct BuildArtifacts {
@@ -926,7 +991,7 @@ fn command_version(command: &str, args: &[&str]) -> Option<String> {
 
 #[derive(Debug, Snafu)]
 enum Error {
-    #[snafu(display("usage: frontend-forge-job <build|page-code|project-files> ..."))]
+    #[snafu(display("usage: frontend-forge-job <build|page-code|project-files|schema> ..."))]
     MissingCommand,
 
     #[snafu(display("unknown command `{command}`"))]
@@ -994,6 +1059,15 @@ enum Error {
 
     #[snafu(display("failed to serialize json: {source}"))]
     SerializeJson { source: serde_json::Error },
+
+    #[snafu(display("failed to compile {schema}: {message}"))]
+    SchemaCompile {
+        schema: &'static str,
+        message: String,
+    },
+
+    #[snafu(display("manifest schema validation failed for {}: {message}", path.display()))]
+    SchemaValidation { path: PathBuf, message: String },
 
     #[snafu(display("{source}"))]
     Core { source: forge_core::Error },
@@ -1153,6 +1227,63 @@ mod tests {
             CommandArgs::Build(args) => assert!(args.emit_project_archive),
             _ => panic!("expected build args"),
         }
+    }
+
+    #[test]
+    fn schema_args_accept_out_dir() {
+        let parsed = parse_args([
+            "schema".to_owned(),
+            "--out-dir".to_owned(),
+            "/output/schema".to_owned(),
+        ])
+        .unwrap();
+
+        match parsed.command {
+            CommandArgs::Schema(args) => assert_eq!(args.out_dir, PathBuf::from("/output/schema")),
+            _ => panic!("expected schema args"),
+        }
+    }
+
+    #[test]
+    fn schema_command_writes_manifest_and_component_tree_schemas() {
+        let dir = TempDir::new().unwrap();
+        run_schema(SchemaArgs {
+            out_dir: dir.path().to_path_buf(),
+        })
+        .unwrap();
+
+        let manifest_schema: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(dir.path().join("manifest.schema.json")).unwrap(),
+        )
+        .unwrap();
+        let component_tree_schema: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(dir.path().join("component-tree.schema.json")).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            manifest_schema.get("$id").and_then(|value| value.as_str()),
+            Some("https://frontend-forge.dev/schemas/manifest.schema.json")
+        );
+        assert!(manifest_schema.pointer("/$defs/componentTree").is_some());
+        assert_eq!(
+            component_tree_schema
+                .get("$id")
+                .and_then(|value| value.as_str()),
+            Some("https://frontend-forge.dev/schemas/component-tree.schema.json")
+        );
+        assert!(
+            component_tree_schema
+                .pointer("/$defs/componentNode")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn manifest_schema_accepts_full_example() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../../examples/full.json")).unwrap();
+        validate_manifest_json(Path::new("examples/full.json"), &manifest).unwrap();
     }
 
     #[test]

@@ -12,6 +12,7 @@ path = "src/main.rs"
 flate2.workspace = true
 forge-core = { path = "../forge-core" }
 forge-project-generator = { path = "../forge-project-generator" }
+jsonschema.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 snafu.workspace = true

@@ -86,6 +86,9 @@ pub trait NodeDefinition: Send + Sync {
     fn runtime_prop_names(&self) -> Vec<&'static str> {
         Vec::new()
     }
+    fn props_json_schema(&self) -> Value {
+        serde_json::json!({ "type": "object" })
+    }
     fn validate_templates(&self, _backend: &dyn JsCodeBackend) -> Result<()> {
         Ok(())
     }
@@ -166,6 +169,15 @@ impl NodeDefinition for NodeSource {
 
     fn runtime_prop_names(&self) -> Vec<&'static str> {
         self.schema.runtime_props.keys().copied().collect()
+    }
+
+    fn props_json_schema(&self) -> Value {
+        let schemas = node_prop_schemas(&self.schema);
+        let fallback_props = self.all_input_paths();
+        if schemas.is_empty() && fallback_props.is_empty() {
+            return serde_json::json!({ "type": "object" });
+        }
+        props_schema_with_fallbacks(&schemas, &fallback_props)
     }
 
     fn validate_templates(&self, backend: &dyn JsCodeBackend) -> Result<()> {
@@ -386,6 +398,9 @@ pub trait DataSourceDefinition: Send + Sync {
     fn id(&self) -> &'static str;
     fn outputs(&self) -> Vec<&'static str> {
         Vec::new()
+    }
+    fn config_json_schema(&self) -> Value {
+        serde_json::json!({ "type": "object" })
     }
     fn call_mode(&self) -> DataSourceCallMode {
         DataSourceCallMode::Hook
@@ -618,6 +633,19 @@ impl DataSourceDefinition for DataSourceSource {
         self.schema.outputs.keys().copied().collect()
     }
 
+    fn config_json_schema(&self) -> Value {
+        let schemas = self
+            .schema
+            .template_inputs
+            .iter()
+            .map(|(key, schema)| (*key, schema))
+            .collect::<IndexMap<_, _>>();
+        if schemas.is_empty() {
+            return serde_json::json!({ "type": "object" });
+        }
+        props_schema(&schemas)
+    }
+
     fn call_mode(&self) -> DataSourceCallMode {
         self.generate_code.call_mode
     }
@@ -766,9 +794,22 @@ fn node_prop_schemas(schema: &NodeSourceSchema) -> IndexMap<&str, &TemplateInput
 }
 
 fn props_schema(schemas: &IndexMap<&str, &TemplateInput>) -> Value {
+    props_schema_with_fallbacks(schemas, &[])
+}
+
+fn props_schema_with_fallbacks(
+    schemas: &IndexMap<&str, &TemplateInput>,
+    fallback_props: &[&str],
+) -> Value {
     let properties = schemas
         .iter()
         .map(|(key, schema)| ((*key).to_owned(), prop_schema(schema)))
+        .chain(
+            fallback_props
+                .iter()
+                .filter(|key| !schemas.contains_key(**key))
+                .map(|key| ((*key).to_owned(), serde_json::json!({}))),
+        )
         .collect::<serde_json::Map<_, _>>();
     serde_json::json!({
         "type": "object",
@@ -1068,6 +1109,14 @@ impl Registry {
             .get(id)
             .map(|item| item.as_ref())
             .ok_or_else(|| Error::DataSourceNotFound { id: id.to_owned() })
+    }
+
+    pub fn node_definitions(&self) -> impl Iterator<Item = &dyn NodeDefinition> {
+        self.nodes.values().map(|item| item.as_ref())
+    }
+
+    pub fn data_source_definitions(&self) -> impl Iterator<Item = &dyn DataSourceDefinition> {
+        self.data_sources.values().map(|item| item.as_ref())
     }
 
     pub fn validate_templates(&self, backend: &dyn JsCodeBackend) -> Result<()> {

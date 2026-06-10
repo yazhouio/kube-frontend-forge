@@ -1,11 +1,11 @@
 mod error;
 
 use forge_component_generator::{
-    ComponentGenerator, builtins::default_registry, unwrap_page_schema,
+    ComponentGenerator, builtins::default_registry, component_tree_schema, unwrap_page_schema,
 };
 use forge_project_generator::{
     ExtensionManifest, GenerateProjectFilesOptions, GenerateProjectFilesResult, PageMeta,
-    VirtualFile, generate_project_files,
+    VirtualFile, generate_project_files, manifest_schema,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -59,6 +59,14 @@ impl ForgeCore {
         self.component_generator
             .generate_page_code(&page)
             .map_err(Error::from)
+    }
+
+    pub fn component_tree_schema(&self) -> Value {
+        component_tree_schema(self.component_generator.registry())
+    }
+
+    pub fn manifest_schema(&self) -> Value {
+        manifest_schema(self.component_tree_schema())
     }
 
     pub fn generate_project_files(

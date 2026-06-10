@@ -48,6 +48,10 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
             .expect("component generator registry must be valid")
     }
 
+    pub fn registry(&self) -> &Registry {
+        &self.registry
+    }
+
     pub fn generate_page_code(&self, page: &PageConfig) -> Result<String> {
         let action_graphs = ActionGraphPlan::new(&page.action_graphs)?;
         let mut bindings = self.build_binding_context(page)?;

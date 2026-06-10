@@ -369,6 +369,7 @@ dependencies = [
  "flate2",
  "forge-core",
  "forge-project-generator",
+ "jsonschema",
  "serde",
  "serde_json",
  "snafu",

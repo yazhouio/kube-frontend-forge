@@ -16,4 +16,4 @@ pub use code_backend::{JsCodeBackend, OxcCodeBackend};
 pub use error::{Error, Result};
 pub use generator::ComponentGenerator;
 pub use model::{PageConfig, unwrap_page_schema};
-pub use schema::component_tree_schema;
+pub use schema::{component_tree_schema, data_source_source_schema, node_source_schema};

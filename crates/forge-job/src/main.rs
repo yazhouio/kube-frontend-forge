@@ -58,6 +58,14 @@ fn run_schema(args: SchemaArgs) -> Result<()> {
         &core.component_tree_schema(),
     )?;
     write_json_file(
+        &args.out_dir.join("node-source.schema.json"),
+        &core.node_source_schema(),
+    )?;
+    write_json_file(
+        &args.out_dir.join("data-source-source.schema.json"),
+        &core.data_source_source_schema(),
+    )?;
+    write_json_file(
         &args.out_dir.join("manifest.schema.json"),
         &core.manifest_schema(),
     )
@@ -1260,6 +1268,14 @@ mod tests {
             &fs::read_to_string(dir.path().join("component-tree.schema.json")).unwrap(),
         )
         .unwrap();
+        let node_source_schema: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(dir.path().join("node-source.schema.json")).unwrap(),
+        )
+        .unwrap();
+        let data_source_source_schema: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(dir.path().join("data-source-source.schema.json")).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(
             manifest_schema.get("$id").and_then(|value| value.as_str()),
@@ -1275,6 +1291,24 @@ mod tests {
         assert!(
             component_tree_schema
                 .pointer("/$defs/componentNode")
+                .is_some()
+        );
+        assert_eq!(
+            node_source_schema
+                .get("$id")
+                .and_then(|value| value.as_str()),
+            Some("https://frontend-forge.dev/schemas/node-source.schema.json")
+        );
+        assert!(node_source_schema.pointer("/$defs/nodeSource").is_some());
+        assert_eq!(
+            data_source_source_schema
+                .get("$id")
+                .and_then(|value| value.as_str()),
+            Some("https://frontend-forge.dev/schemas/data-source-source.schema.json")
+        );
+        assert!(
+            data_source_source_schema
+                .pointer("/$defs/dataSourceSource")
                 .is_some()
         );
     }

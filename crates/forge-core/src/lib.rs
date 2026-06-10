@@ -1,7 +1,8 @@
 mod error;
 
 use forge_component_generator::{
-    ComponentGenerator, builtins::default_registry, component_tree_schema, unwrap_page_schema,
+    ComponentGenerator, builtins::default_registry, component_tree_schema,
+    data_source_source_schema, node_source_schema, unwrap_page_schema,
 };
 use forge_project_generator::{
     ExtensionManifest, GenerateProjectFilesOptions, GenerateProjectFilesResult, PageMeta,
@@ -63,6 +64,14 @@ impl ForgeCore {
 
     pub fn component_tree_schema(&self) -> Value {
         component_tree_schema(self.component_generator.registry())
+    }
+
+    pub fn node_source_schema(&self) -> Value {
+        node_source_schema()
+    }
+
+    pub fn data_source_source_schema(&self) -> Value {
+        data_source_source_schema()
     }
 
     pub fn manifest_schema(&self) -> Value {

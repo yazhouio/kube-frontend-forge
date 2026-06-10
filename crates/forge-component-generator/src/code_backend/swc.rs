@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use swc_ecma_ast::{ModuleDecl, ModuleItem};
 
 use super::swc_ast::{
-    emit_module as swc_emit_module, parse_module_items as swc_parse_module_items,
+    emit_module as swc_emit_module, parse_expr as swc_parse_expr,
+    parse_module_items as swc_parse_module_items,
 };
 use super::swc_rename::{
     rename_expr_idents as swc_rename_expr_idents,
@@ -16,6 +17,14 @@ use crate::error::Result;
 pub struct SwcCodeBackend;
 
 impl JsCodeBackend for SwcCodeBackend {
+    fn validate_expr(&self, code: &str) -> Result<()> {
+        swc_parse_expr(code).map(|_| ())
+    }
+
+    fn validate_module_items(&self, code: &str) -> Result<()> {
+        swc_parse_module_items(code).map(|_| ())
+    }
+
     fn rename_expr_idents(
         &self,
         code: &str,

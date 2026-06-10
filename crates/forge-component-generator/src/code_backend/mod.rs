@@ -23,6 +23,10 @@ pub struct SplitModuleItems {
 }
 
 pub trait JsCodeBackend {
+    fn validate_expr(&self, code: &str) -> Result<()>;
+
+    fn validate_module_items(&self, code: &str) -> Result<()>;
+
     fn rename_expr_idents(
         &self,
         code: &str,
@@ -91,6 +95,11 @@ mod tests {
         assert_eq!(split.rest.len(), 1);
         assert_code_contains(&split.imports[0], r#"from "react""#);
         assert_code_contains(&split.rest[0], "const local = 1");
+
+        backend.validate_expr("<div>{value}</div>").unwrap();
+        backend
+            .validate_module_items("const local = 1; function read() { return local; }")
+            .unwrap();
 
         let module = backend
             .emit_module(

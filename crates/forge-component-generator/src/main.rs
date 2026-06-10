@@ -25,10 +25,10 @@ fn run() -> Result<()> {
     })?;
     let page = unwrap_page_schema(value)?;
     let code = match args.backend.as_str() {
-        "oxc" => ComponentGenerator::with_backend(default_registry(), OxcCodeBackend)
+        "oxc" => ComponentGenerator::try_with_backend(default_registry(), OxcCodeBackend)?
             .generate_page_code(&page)?,
         #[cfg(feature = "swc")]
-        "swc" => ComponentGenerator::with_backend(default_registry(), SwcCodeBackend)
+        "swc" => ComponentGenerator::try_with_backend(default_registry(), SwcCodeBackend)?
             .generate_page_code(&page)?,
         #[cfg(not(feature = "swc"))]
         "swc" => {

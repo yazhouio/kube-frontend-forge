@@ -16,6 +16,14 @@ use crate::error::Result;
 pub struct OxcCodeBackend;
 
 impl JsCodeBackend for OxcCodeBackend {
+    fn validate_expr(&self, code: &str) -> Result<()> {
+        with_oxc_expression(code, |_allocator, _expr| Ok(()))
+    }
+
+    fn validate_module_items(&self, code: &str) -> Result<()> {
+        with_oxc_program(code, |_allocator, _program| Ok(()))
+    }
+
     fn rename_expr_idents(
         &self,
         code: &str,

@@ -22,25 +22,30 @@ pub struct ComponentGenerator<B = OxcCodeBackend> {
 
 impl Default for ComponentGenerator<OxcCodeBackend> {
     fn default() -> Self {
-        Self {
-            registry: default_registry(),
-            backend: OxcCodeBackend,
-        }
+        Self::try_with_backend(default_registry(), OxcCodeBackend)
+            .expect("default component generator registry must be valid")
     }
 }
 
 impl ComponentGenerator<OxcCodeBackend> {
+    pub fn try_new(registry: Registry) -> Result<Self> {
+        Self::try_with_backend(registry, OxcCodeBackend)
+    }
+
     pub fn new(registry: Registry) -> Self {
-        Self {
-            registry,
-            backend: OxcCodeBackend,
-        }
+        Self::try_new(registry).expect("component generator registry must be valid")
     }
 }
 
 impl<B: JsCodeBackend> ComponentGenerator<B> {
+    pub fn try_with_backend(registry: Registry, backend: B) -> Result<Self> {
+        registry.validate_templates(&backend)?;
+        Ok(Self { registry, backend })
+    }
+
     pub fn with_backend(registry: Registry, backend: B) -> Self {
-        Self { registry, backend }
+        Self::try_with_backend(registry, backend)
+            .expect("component generator registry must be valid")
     }
 
     pub fn generate_page_code(&self, page: &PageConfig) -> Result<String> {
@@ -185,10 +190,7 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
         }
 
         let probe_child_jsx = children.iter().map(ChildRender::jsx).collect::<Vec<_>>();
-        let rendered_probe =
-            self.registry
-                .node(&node.ty)?
-                .render(&render_node, probe_child_jsx, ctx)?;
+        let rendered_probe = self.render_node(&render_node, probe_child_jsx, ctx)?;
         let mut used_names = IndexSet::<String>::new();
         add_stat_outputs(&rendered_probe.stats, &mut used_names);
 
@@ -216,10 +218,7 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
             }
         }
 
-        let rendered = self
-            .registry
-            .node(&node.ty)?
-            .render(&render_node, child_jsx, ctx)?;
+        let rendered = self.render_node(&render_node, child_jsx, ctx)?;
         let mut own_stats = rendered.stats;
         own_stats.extend(stats);
         binding_uses.extend(rendered.binding_uses);
@@ -260,10 +259,16 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
             })?;
             stats.extend(
                 self.registry
-                    .data_source(&data_source.ty)?
+                    .data_source(&data_source.ty)
+                    .map_err(|source| Error::RenderDataSource {
+                        id: data_source.id.clone(),
+                        ty: data_source.ty.clone(),
+                        source: Box::new(source),
+                    })?
                     .render(data_source, ctx)
                     .map_err(|source| Error::RenderDataSource {
                         id: data_source.id.clone(),
+                        ty: data_source.ty.clone(),
                         source: Box::new(source),
                     })?,
             );
@@ -271,6 +276,22 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
         }
 
         Ok(stats)
+    }
+
+    fn render_node(
+        &self,
+        node: &ComponentNode,
+        children: Vec<String>,
+        ctx: &mut RenderContext,
+    ) -> Result<crate::registry::NodeRender> {
+        self.registry
+            .node(&node.ty)
+            .and_then(|definition| definition.render(node, children, ctx))
+            .map_err(|source| Error::RenderNode {
+                node_id: node.id.clone(),
+                node_type: node.ty.clone(),
+                source: Box::new(source),
+            })
     }
 
     fn render_local_stats(
@@ -339,7 +360,14 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
     fn build_binding_context(&self, page: &PageConfig) -> Result<BindingContext> {
         let mut ctx = BindingContext::default();
         for data_source in &page.data_sources {
-            let definition = self.registry.data_source(&data_source.ty)?;
+            let definition = self
+                .registry
+                .data_source(&data_source.ty)
+                .map_err(|source| Error::RenderDataSource {
+                    id: data_source.id.clone(),
+                    ty: data_source.ty.clone(),
+                    source: Box::new(source),
+                })?;
             let base_name = crate::value::camel_case(&data_source.id);
             let hook_name = data_source
                 .config
@@ -709,6 +737,25 @@ mod tests {
             .or_else(|| compact_code(code).find(&compact_code(expected)))
     }
 
+    fn error_chain_contains(err: &Error, expected: fn(&Error) -> bool) -> bool {
+        if expected(err) {
+            return true;
+        }
+        match err {
+            Error::RenderNode { source, .. }
+            | Error::RenderDataSource { source, .. }
+            | Error::TemplateValidation { source, .. } => error_chain_contains(source, expected),
+            _ => false,
+        }
+    }
+
+    fn expect_error<T>(result: Result<T>) -> Error {
+        match result {
+            Ok(_) => panic!("expected error"),
+            Err(err) => err,
+        }
+    }
+
     #[test]
     fn generates_basic_page() {
         let raw = serde_json::json!({
@@ -1008,11 +1055,50 @@ mod tests {
           },
           "context": {}
         });
-        let page = unwrap_page_schema(raw).unwrap();
-        let err = ComponentGenerator::new(registry)
-            .generate_page_code(&page)
-            .unwrap_err();
+        let _page = unwrap_page_schema(raw).unwrap();
+        let err = expect_error(ComponentGenerator::try_new(registry));
         assert!(matches!(err, Error::StatDependencyNotFound { .. }));
+    }
+
+    #[test]
+    fn validates_node_templates_during_generator_construction() {
+        let mut registry = Registry::default();
+        registry.register_node(NodeSource::new(
+            "BrokenTemplate",
+            NodeSourceGenerateCode {
+                jsx: Some("<div>{%%TEXT%%}</div"),
+                meta: Some(NodeSourceMeta {
+                    input_paths: [("$jsx", vec!["TEXT"])].into_iter().collect(),
+                    runtime_deps: Vec::new(),
+                }),
+                ..NodeSourceGenerateCode::default()
+            },
+        ));
+
+        let err = expect_error(ComponentGenerator::try_new(registry));
+        assert!(matches!(err, Error::TemplateValidation { .. }));
+        assert!(err.to_string().contains("node source BrokenTemplate jsx"));
+    }
+
+    #[test]
+    fn validates_template_placeholders_against_meta_input_paths() {
+        let mut registry = Registry::default();
+        registry.register_node(NodeSource::new(
+            "MissingInputPath",
+            NodeSourceGenerateCode {
+                jsx: Some("<div>{%%TEXT%%}</div>"),
+                ..NodeSourceGenerateCode::default()
+            },
+        ));
+
+        let err = expect_error(ComponentGenerator::try_new(registry));
+        assert!(matches!(
+            err,
+            Error::TemplatePlaceholderNotDeclared {
+                placeholder,
+                ..
+            } if placeholder == "TEXT"
+        ));
     }
 
     #[test]
@@ -1609,7 +1695,10 @@ mod tests {
         let err = ComponentGenerator::new(registry)
             .generate_page_code(&page)
             .unwrap_err();
-        assert!(matches!(err, Error::AmbiguousBindingSource { .. }));
+        assert!(error_chain_contains(&err, |err| matches!(
+            err,
+            Error::AmbiguousBindingSource { .. }
+        )));
     }
 
     #[test]
@@ -1628,7 +1717,11 @@ mod tests {
         let err = ComponentGenerator::default()
             .generate_page_code(&page)
             .unwrap_err();
-        assert!(matches!(err, Error::InvalidPropType { .. }));
+        assert!(err.to_string().contains("node root (Text)"));
+        assert!(error_chain_contains(&err, |err| matches!(
+            err,
+            Error::InvalidPropType { .. }
+        )));
     }
 
     #[test]
@@ -1647,7 +1740,10 @@ mod tests {
         let err = ComponentGenerator::default()
             .generate_page_code(&page)
             .unwrap_err();
-        assert!(matches!(err, Error::UnknownProp { .. }));
+        assert!(error_chain_contains(&err, |err| matches!(
+            err,
+            Error::UnknownProp { .. }
+        )));
     }
 
     #[test]

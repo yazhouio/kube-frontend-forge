@@ -1,6 +1,9 @@
+use std::sync::OnceLock;
+
 use indexmap::IndexMap;
 use serde_json::Value;
 
+use crate::code_backend::JsCodeBackend;
 use crate::error::{Error, Result};
 use crate::imports::ImportRegistry;
 use crate::model::{ComponentNode, DataSourceNode};
@@ -83,6 +86,9 @@ pub trait NodeDefinition: Send + Sync {
     fn runtime_prop_names(&self) -> Vec<&'static str> {
         Vec::new()
     }
+    fn validate_templates(&self, _backend: &dyn JsCodeBackend) -> Result<()> {
+        Ok(())
+    }
     fn render(
         &self,
         node: &ComponentNode,
@@ -91,11 +97,26 @@ pub trait NodeDefinition: Send + Sync {
     ) -> Result<NodeRender>;
 }
 
-#[derive(Clone)]
 pub struct NodeSource {
     pub id: &'static str,
     pub schema: NodeSourceSchema,
     pub generate_code: NodeSourceGenerateCode,
+    props_validator: OnceLock<jsonschema::Validator>,
+}
+
+impl Clone for NodeSource {
+    fn clone(&self) -> Self {
+        let props_validator = OnceLock::new();
+        if let Some(validator) = self.props_validator.get() {
+            let _ = props_validator.set(validator.clone());
+        }
+        Self {
+            id: self.id,
+            schema: self.schema.clone(),
+            generate_code: self.generate_code.clone(),
+            props_validator,
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -147,13 +168,17 @@ impl NodeDefinition for NodeSource {
         self.schema.runtime_props.keys().copied().collect()
     }
 
+    fn validate_templates(&self, backend: &dyn JsCodeBackend) -> Result<()> {
+        self.validate_definition(backend)
+    }
+
     fn render(
         &self,
         node: &ComponentNode,
         children: Vec<String>,
         ctx: &mut RenderContext,
     ) -> Result<NodeRender> {
-        self.validate_props(&node.props)?;
+        self.validate_props(&node.id, &node.props)?;
         for import in &self.generate_code.imports {
             ctx.imports.add_source(import);
         }
@@ -219,6 +244,7 @@ impl NodeSource {
             id,
             schema: NodeSourceSchema::default(),
             generate_code,
+            props_validator: OnceLock::new(),
         }
     }
 
@@ -248,6 +274,69 @@ impl NodeSource {
         out.into_iter().collect()
     }
 
+    fn validate_definition(&self, backend: &dyn JsCodeBackend) -> Result<()> {
+        let owner = node_source_owner(self.id);
+        self.ensure_props_validator(&owner)?;
+        validate_meta_targets(
+            &owner,
+            self.generate_code
+                .meta
+                .as_ref()
+                .map(|meta| &meta.input_paths),
+            self.generate_code.jsx.is_some(),
+            self.generate_code.stats.iter().map(|stat| stat.id),
+        )?;
+        order_stat_sources(self.id, &self.generate_code.stats)?;
+
+        for (index, import) in self.generate_code.imports.iter().enumerate() {
+            backend
+                .validate_module_items(import)
+                .map_err(|source| Error::TemplateValidation {
+                    owner: owner.clone(),
+                    part: format!("import[{index}]"),
+                    source: Box::new(source),
+                })?;
+        }
+
+        for stat in &self.generate_code.stats {
+            let part = format!("stat {}", stat.id);
+            let code = render_validation_template(
+                &owner,
+                &part,
+                stat.code,
+                self.input_paths(stat.id),
+                node_validation_replacement,
+            )?;
+            backend
+                .validate_module_items(&code)
+                .map_err(|source| Error::TemplateValidation {
+                    owner: owner.clone(),
+                    part,
+                    source: Box::new(source),
+                })?;
+        }
+
+        if let Some(jsx) = self.generate_code.jsx {
+            let part = "jsx".to_owned();
+            let code = render_validation_template(
+                &owner,
+                &part,
+                jsx,
+                self.input_paths("$jsx"),
+                node_validation_replacement,
+            )?;
+            backend
+                .validate_expr(&code)
+                .map_err(|source| Error::TemplateValidation {
+                    owner,
+                    part,
+                    source: Box::new(source),
+                })?;
+        }
+
+        Ok(())
+    }
+
     fn render_template(
         &self,
         template: &str,
@@ -271,24 +360,25 @@ impl NodeSource {
         Ok(out)
     }
 
-    fn validate_props(&self, props: &std::collections::BTreeMap<String, Value>) -> Result<()> {
-        let mut schemas = IndexMap::<&str, &TemplateInput>::new();
-        schemas.extend(
-            self.schema
-                .template_inputs
-                .iter()
-                .map(|(key, schema)| (*key, schema)),
-        );
-        schemas.extend(
-            self.schema
-                .runtime_props
-                .iter()
-                .map(|(key, schema)| (*key, schema)),
-        );
+    fn validate_props(
+        &self,
+        node_id: &str,
+        props: &std::collections::BTreeMap<String, Value>,
+    ) -> Result<()> {
+        let schemas = node_prop_schemas(&self.schema);
         if schemas.is_empty() {
             return Ok(());
         }
-        validate_props(self.id, props, &schemas)
+        let owner = node_instance_owner(node_id, self.id);
+        validate_props(&owner, props, &schemas, &self.props_validator)
+    }
+
+    fn ensure_props_validator(&self, owner: &str) -> Result<Option<&jsonschema::Validator>> {
+        let schemas = node_prop_schemas(&self.schema);
+        if schemas.is_empty() {
+            return Ok(None);
+        }
+        cached_props_validator(&self.props_validator, owner, &schemas).map(Some)
     }
 }
 
@@ -300,6 +390,9 @@ pub trait DataSourceDefinition: Send + Sync {
     fn call_mode(&self) -> DataSourceCallMode {
         DataSourceCallMode::Hook
     }
+    fn validate_templates(&self, _backend: &dyn JsCodeBackend) -> Result<()> {
+        Ok(())
+    }
     fn render(
         &self,
         data_source: &DataSourceNode,
@@ -307,11 +400,26 @@ pub trait DataSourceDefinition: Send + Sync {
     ) -> Result<Vec<RenderedStat>>;
 }
 
-#[derive(Clone)]
 pub struct DataSourceSource {
     pub id: &'static str,
     pub schema: DataSourceSourceSchema,
     pub generate_code: DataSourceSourceGenerateCode,
+    config_validator: OnceLock<jsonschema::Validator>,
+}
+
+impl Clone for DataSourceSource {
+    fn clone(&self) -> Self {
+        let config_validator = OnceLock::new();
+        if let Some(validator) = self.config_validator.get() {
+            let _ = config_validator.set(validator.clone());
+        }
+        Self {
+            id: self.id,
+            schema: self.schema.clone(),
+            generate_code: self.generate_code.clone(),
+            config_validator,
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -341,6 +449,7 @@ impl DataSourceSource {
             id,
             schema: DataSourceSourceSchema::default(),
             generate_code,
+            config_validator: OnceLock::new(),
         }
     }
 
@@ -403,6 +512,56 @@ impl DataSourceSource {
         Ok(out)
     }
 
+    fn validate_definition(&self, backend: &dyn JsCodeBackend) -> Result<()> {
+        let owner = data_source_source_owner(self.id);
+        self.ensure_config_validator(&owner)?;
+        validate_meta_targets(
+            &owner,
+            self.generate_code
+                .meta
+                .as_ref()
+                .map(|meta| &meta.input_paths),
+            false,
+            self.generate_code.stats.iter().map(|stat| stat.id),
+        )?;
+        order_stat_sources(self.id, &self.generate_code.stats)?;
+
+        for (index, import) in self.generate_code.imports.iter().enumerate() {
+            backend
+                .validate_module_items(import)
+                .map_err(|source| Error::TemplateValidation {
+                    owner: owner.clone(),
+                    part: format!("import[{index}]"),
+                    source: Box::new(source),
+                })?;
+        }
+
+        for stat in &self.generate_code.stats {
+            let identifier_inputs = stat
+                .output
+                .iter()
+                .copied()
+                .collect::<indexmap::IndexSet<_>>();
+            let part = format!("stat {}", stat.id);
+            let code = render_validation_template(
+                &owner,
+                &part,
+                stat.code,
+                self.input_paths(stat.id),
+                |input| data_source_validation_replacement(input, &identifier_inputs),
+            )?;
+            backend
+                .validate_module_items(&code)
+                .map_err(|source| Error::TemplateValidation {
+                    owner: owner.clone(),
+                    part,
+                    source: Box::new(source),
+                })?;
+        }
+
+        Ok(())
+    }
+
     fn default_input(&self, input: &str, data_source: &DataSourceNode) -> Result<Option<String>> {
         self.generate_code
             .defaults
@@ -459,12 +618,16 @@ impl DataSourceDefinition for DataSourceSource {
         self.generate_code.call_mode
     }
 
+    fn validate_templates(&self, backend: &dyn JsCodeBackend) -> Result<()> {
+        self.validate_definition(backend)
+    }
+
     fn render(
         &self,
         data_source: &DataSourceNode,
         ctx: &mut RenderContext,
     ) -> Result<Vec<RenderedStat>> {
-        self.validate_config(&data_source.config)?;
+        self.validate_config(&data_source.id, &data_source.config)?;
         for import in &self.generate_code.imports {
             ctx.imports.add_source(import);
         }
@@ -502,7 +665,11 @@ impl DataSourceSource {
         }
     }
 
-    fn validate_config(&self, config: &std::collections::BTreeMap<String, Value>) -> Result<()> {
+    fn validate_config(
+        &self,
+        data_source_id: &str,
+        config: &std::collections::BTreeMap<String, Value>,
+    ) -> Result<()> {
         if self.schema.template_inputs.is_empty() {
             return Ok(());
         }
@@ -512,7 +679,21 @@ impl DataSourceSource {
             .iter()
             .map(|(key, schema)| (*key, schema))
             .collect::<IndexMap<_, _>>();
-        validate_props(self.id, config, &schemas)
+        let owner = data_source_instance_owner(data_source_id, self.id);
+        validate_props(&owner, config, &schemas, &self.config_validator)
+    }
+
+    fn ensure_config_validator(&self, owner: &str) -> Result<Option<&jsonschema::Validator>> {
+        if self.schema.template_inputs.is_empty() {
+            return Ok(None);
+        }
+        let schemas = self
+            .schema
+            .template_inputs
+            .iter()
+            .map(|(key, schema)| (*key, schema))
+            .collect::<IndexMap<_, _>>();
+        cached_props_validator(&self.config_validator, owner, &schemas).map(Some)
     }
 }
 
@@ -520,16 +701,60 @@ fn validate_props(
     owner: &str,
     props: &std::collections::BTreeMap<String, Value>,
     schemas: &IndexMap<&str, &TemplateInput>,
+    validator: &OnceLock<jsonschema::Validator>,
 ) -> Result<()> {
     let instance = serde_json::to_value(props).map_err(|source| Error::JsonValue { source })?;
-    let schema = props_schema(schemas);
-    jsonschema::validate(&schema, &instance).map_err(|err| {
+    let validator = cached_props_validator(validator, owner, schemas)?;
+    validator.validate(&instance).map_err(|err| {
         let legacy = legacy_prop_error(owner, props, schemas);
         legacy.unwrap_or_else(|| Error::JsonSchemaValidation {
             owner: owner.to_owned(),
             message: err.to_string(),
         })
     })
+}
+
+fn cached_props_validator<'a>(
+    cache: &'a OnceLock<jsonschema::Validator>,
+    owner: &str,
+    schemas: &IndexMap<&str, &TemplateInput>,
+) -> Result<&'a jsonschema::Validator> {
+    if let Some(validator) = cache.get() {
+        return Ok(validator);
+    }
+    let validator = compile_props_validator(owner, schemas)?;
+    let _ = cache.set(validator);
+    Ok(cache
+        .get()
+        .expect("props validator cache was just initialized"))
+}
+
+fn compile_props_validator(
+    owner: &str,
+    schemas: &IndexMap<&str, &TemplateInput>,
+) -> Result<jsonschema::Validator> {
+    let schema = props_schema(schemas);
+    jsonschema::validator_for(&schema).map_err(|err| Error::JsonSchemaCompile {
+        owner: owner.to_owned(),
+        message: err.to_string(),
+    })
+}
+
+fn node_prop_schemas(schema: &NodeSourceSchema) -> IndexMap<&str, &TemplateInput> {
+    let mut schemas = IndexMap::<&str, &TemplateInput>::new();
+    schemas.extend(
+        schema
+            .template_inputs
+            .iter()
+            .map(|(key, schema)| (*key, schema)),
+    );
+    schemas.extend(
+        schema
+            .runtime_props
+            .iter()
+            .map(|(key, schema)| (*key, schema)),
+    );
+    schemas
 }
 
 fn props_schema(schemas: &IndexMap<&str, &TemplateInput>) -> Value {
@@ -609,6 +834,111 @@ fn legacy_prop_error(
         }
     }
     None
+}
+
+fn validate_meta_targets<'a>(
+    owner: &str,
+    meta_input_paths: Option<&IndexMap<&'static str, Vec<&'static str>>>,
+    has_jsx: bool,
+    stat_ids: impl Iterator<Item = &'a str>,
+) -> Result<()> {
+    let Some(input_paths) = meta_input_paths else {
+        return Ok(());
+    };
+    let stat_ids = stat_ids.collect::<indexmap::IndexSet<_>>();
+    for target in input_paths.keys() {
+        if *target == "$jsx" {
+            if has_jsx {
+                continue;
+            }
+        } else if stat_ids.contains(target) {
+            continue;
+        }
+        return Err(Error::TemplateMetaTargetNotFound {
+            owner: owner.to_owned(),
+            target: (*target).to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn render_validation_template(
+    owner: &str,
+    part: &str,
+    template: &str,
+    input_paths: &[&str],
+    replacement: impl Fn(&str) -> &'static str,
+) -> Result<String> {
+    let declared = input_paths
+        .iter()
+        .copied()
+        .collect::<indexmap::IndexSet<_>>();
+    for placeholder in template_placeholders(template) {
+        if !declared.contains(placeholder.as_str()) {
+            return Err(Error::TemplatePlaceholderNotDeclared {
+                owner: owner.to_owned(),
+                part: part.to_owned(),
+                placeholder,
+            });
+        }
+    }
+
+    let mut out = template.to_owned();
+    out = out.replace("<__ENGINE_CHILDREN__ />", "<React.Fragment />");
+    out = out.replace("<__ENGINE_CHILDREN__/>", "<React.Fragment />");
+    out = out.replace("__ENGINE_CHILDREN__", "<React.Fragment />");
+    for input in input_paths {
+        out = out.replace(&format!("%%{input}%%"), replacement(input));
+    }
+    Ok(out)
+}
+
+fn template_placeholders(template: &str) -> indexmap::IndexSet<String> {
+    let mut out = indexmap::IndexSet::new();
+    let mut rest = template;
+    while let Some(start) = rest.find("%%") {
+        let after_start = &rest[start + 2..];
+        let Some(end) = after_start.find("%%") else {
+            break;
+        };
+        let name = after_start[..end].trim();
+        if !name.is_empty() {
+            out.insert(name.to_owned());
+        }
+        rest = &after_start[end + 2..];
+    }
+    out
+}
+
+fn node_validation_replacement(_input: &str) -> &'static str {
+    "undefined"
+}
+
+fn data_source_validation_replacement(
+    input: &str,
+    identifier_inputs: &indexmap::IndexSet<&str>,
+) -> &'static str {
+    if identifier_inputs.contains(input) || is_identifier_input(input) {
+        "__forgeTemplateIdent"
+    } else {
+        "undefined"
+    }
+}
+
+fn node_source_owner(id: &str) -> String {
+    format!("node source {id}")
+}
+
+fn data_source_source_owner(id: &str) -> String {
+    format!("data source source {id}")
+}
+
+fn node_instance_owner(node_id: &str, source_id: &str) -> String {
+    format!("node {node_id} ({source_id})")
+}
+
+fn data_source_instance_owner(data_source_id: &str, source_id: &str) -> String {
+    format!("data source {data_source_id} ({source_id})")
 }
 
 fn is_dynamic_value(value: &Value) -> bool {
@@ -730,5 +1060,15 @@ impl Registry {
             .get(id)
             .map(|item| item.as_ref())
             .ok_or_else(|| Error::DataSourceNotFound { id: id.to_owned() })
+    }
+
+    pub fn validate_templates(&self, backend: &dyn JsCodeBackend) -> Result<()> {
+        for definition in self.nodes.values() {
+            definition.validate_templates(backend)?;
+        }
+        for definition in self.data_sources.values() {
+            definition.validate_templates(backend)?;
+        }
+        Ok(())
     }
 }

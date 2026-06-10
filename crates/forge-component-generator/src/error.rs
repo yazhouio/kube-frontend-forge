@@ -69,8 +69,19 @@ pub enum Error {
     #[snafu(display("binding source not found: {id}"))]
     BindingSourceNotFound { id: String },
 
-    #[snafu(display("failed to render data source {id}"))]
-    RenderDataSource { id: String, source: Box<Error> },
+    #[snafu(display("failed to render node {node_id} ({node_type}): {source}"))]
+    RenderNode {
+        node_id: String,
+        node_type: String,
+        source: Box<Error>,
+    },
+
+    #[snafu(display("failed to render data source {id} ({ty}): {source}"))]
+    RenderDataSource {
+        id: String,
+        ty: String,
+        source: Box<Error>,
+    },
 
     #[snafu(display("expression value requires string code"))]
     ExpressionCodeRequired,
@@ -86,6 +97,25 @@ pub enum Error {
 
     #[snafu(display("node source {id} is missing jsx template"))]
     MissingJsxTemplate { id: String },
+
+    #[snafu(display("failed to validate {owner} {part} template: {source}"))]
+    TemplateValidation {
+        owner: String,
+        part: String,
+        source: Box<Error>,
+    },
+
+    #[snafu(display("{owner} template meta references unknown target {target}"))]
+    TemplateMetaTargetNotFound { owner: String, target: String },
+
+    #[snafu(display(
+        "{owner} {part} template placeholder %%{placeholder}%% is not declared in meta.inputPaths"
+    ))]
+    TemplatePlaceholderNotDeclared {
+        owner: String,
+        part: String,
+        placeholder: String,
+    },
 
     #[snafu(display("stat {owner}.{stat} depends on missing stat {dependency}"))]
     StatDependencyNotFound {
@@ -118,4 +148,7 @@ pub enum Error {
 
     #[snafu(display("{owner} schema validation failed: {message}"))]
     JsonSchemaValidation { owner: String, message: String },
+
+    #[snafu(display("{owner} schema compile failed: {message}"))]
+    JsonSchemaCompile { owner: String, message: String },
 }

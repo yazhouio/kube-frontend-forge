@@ -12,6 +12,7 @@ Rust component generator for Frontend Forge.
 - Provides an optional SWC-backed `JsCodeBackend` behind the `swc` Cargo feature. The generator IR does not expose SWC or Oxc AST types.
 - Uses `snafu` for structured errors.
 - Emits TSX code as a string.
+- Validates registered node/data source templates during generator construction, including imports, stats, JSX snippets, stat dependencies, and `meta.inputPaths` placeholder coverage.
 - Merges common namespace/named imports structurally while still allowing `NodeSource.generateCode.imports` to use TypeScript-style import strings.
 - Orders `generateCode.stats` by `depends` and reports missing/cyclic stat dependencies as structured errors.
 - Emits scoped component nodes as functions and inlines non-scoped child nodes into their nearest scoped parent.
@@ -32,7 +33,7 @@ Rust component generator for Frontend Forge.
 - Supports action graph context bindings in node props, for example `target: "context", source: "formGraph", path: "name"`.
 - Keeps explicit node event props authoritative when action graph handlers target the same prop.
 - Reports ambiguous binding sources when the same id exists as both a data source and an action graph and the binding does not specify `target`.
-- Performs JSON Schema validation for declared node/data source template inputs via the Rust `jsonschema` crate. The generated prop schema follows the TypeScript behavior by allowing `binding` and `expression` values in addition to the declared data type.
+- Performs JSON Schema validation for declared node/data source template inputs via the Rust `jsonschema` crate. Validators are compiled once per registered source and cached. The generated prop schema follows the TypeScript behavior by allowing `binding` and `expression` values in addition to the declared data type.
 
 Implemented nodes:
 
@@ -75,13 +76,13 @@ let code = ComponentGenerator::default().generate_page_code(&page)?;
 The Oxc backend can also be selected explicitly:
 
 ```rust
-let generator = ComponentGenerator::with_backend(default_registry(), OxcCodeBackend);
+let generator = ComponentGenerator::try_with_backend(default_registry(), OxcCodeBackend)?;
 let code = generator.generate_page_code(&page)?;
 ```
 
 The SWC backend is available only when the crate is built with `--features swc`:
 
 ```rust
-let generator = ComponentGenerator::with_backend(default_registry(), SwcCodeBackend);
+let generator = ComponentGenerator::try_with_backend(default_registry(), SwcCodeBackend)?;
 let code = generator.generate_page_code(&page)?;
 ```

@@ -5,7 +5,9 @@ FROM rust:1-bookworm AS rust-builder
 WORKDIR /workspace
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN cargo build --release -p forge-job
+RUN --mount=type=cache,id=forge-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=forge-cargo-git,target=/usr/local/cargo/git \
+    cargo build --release -p forge-job
 
 FROM node:22-bookworm-slim AS node-deps
 
@@ -17,7 +19,8 @@ WORKDIR /workspace
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY crates/forge-job/package.json ./crates/forge-job/package.json
 COPY packages/forge-components/package.json ./packages/forge-components/package.json
-RUN --mount=type=secret,id=npm_auth_base64 \
+RUN --mount=type=cache,id=forge-pnpm-store,target=/pnpm/store \
+    --mount=type=secret,id=npm_auth_base64 \
     set -eu; \
     cleanup() { \
       pnpm config delete "//internal-registry.npm.kubesphere.com.cn/:_auth" >/dev/null 2>&1 || true; \
@@ -29,11 +32,12 @@ RUN --mount=type=secret,id=npm_auth_base64 \
       pnpm config set "//internal-registry.npm.kubesphere.com.cn/:_auth" "$NPM_AUTH_BASE64"; \
       pnpm config set "//internal-registry.npm.kubesphere.com.cn/:always-auth" true; \
     fi; \
-    pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --store-dir /pnpm/store
 
 COPY packages/forge-components ./packages/forge-components
 RUN pnpm --filter @frontend-forge/forge-components build
-RUN pnpm --config.inject-workspace-packages=true --filter @frontend-forge/forge-job-runtime deploy --prod /runtime/forge-job \
+RUN --mount=type=cache,id=forge-pnpm-store,target=/pnpm/store \
+    pnpm --store-dir /pnpm/store --config.inject-workspace-packages=true --filter @frontend-forge/forge-job-runtime deploy --prod /runtime/forge-job \
     && find /runtime/forge-job -path '*/node_modules/*' -type d \( \
       -name test -o -name tests -o -name __tests__ -o -name docs -o -name doc -o -name examples -o -name example -o -name benchmark -o -name benchmarks \
     \) -prune -exec rm -rf '{}' + \

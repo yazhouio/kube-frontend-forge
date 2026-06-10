@@ -5,17 +5,7 @@ import terser from '@rollup/plugin-terser';
 import typescript from '@rollup/plugin-typescript';
 import postcss from 'rollup-plugin-postcss';
 
-const externalPackages = [
-  '@ks-console/shared',
-  '@kubed/code-editor',
-  '@kubed/components',
-  '@kubed/icons',
-  'react',
-  'react-dom',
-  'react-query',
-  'react-router-dom',
-  'styled-components',
-];
+const externalPackages = __EXTERNAL_PACKAGES__;
 
 const external = (id) => externalPackages.includes(id);
 const hasStyleSideEffects = (id) => /\.(css|less|sass|scss|styl)(\?.*)?$/.test(id);

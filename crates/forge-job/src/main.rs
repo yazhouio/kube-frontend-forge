@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     env, fs,
     io::{self, Write},
     path::{Path, PathBuf},
@@ -8,7 +9,9 @@ use std::{
 
 use flate2::{Compression, write::GzEncoder};
 use forge_core::{BuildPlan, ForgeCore};
-use forge_project_generator::{ExtensionManifest, VirtualFile, unwrap_manifest};
+use forge_project_generator::{
+    ExtensionManifest, TreeShakingSummary, VirtualFile, build_config_summary, unwrap_manifest,
+};
 use serde::Serialize;
 use snafu::Snafu;
 use tempfile::TempDir;
@@ -95,16 +98,22 @@ fn run_build(args: BuildArgs) -> Result<()> {
 
         let dist_dir = project_dir.join(&plan.expectations.dist_dir);
         validate_systemjs_dist(&dist_dir)?;
+        let mut bundle_summary = summarize_dist(&dist_dir)?;
 
         let archive_started = Instant::now();
         let build_archive = args.out_dir.join("build.tar.gz");
         archive_directory(&dist_dir, &build_archive)?;
+        bundle_summary.archive_bytes = Some(file_len(&build_archive)?);
         timings.archive_ms += elapsed_ms(archive_started);
+
+        let dependencies = generated_dependencies(&plan.files)?;
 
         Ok(BuildArtifacts {
             plan,
             build_archive,
             project_archive,
+            bundle_summary,
+            dependencies,
         })
     })();
 
@@ -124,6 +133,8 @@ fn run_build(args: BuildArgs) -> Result<()> {
                 .as_ref()
                 .map(|path| path_string(path));
             result.expectations = Some(artifacts.plan.expectations);
+            result.build.dependencies = artifacts.dependencies;
+            result.build.bundle = Some(artifacts.bundle_summary);
             write_result_json(&args.out_dir, &result)?;
             Ok(())
         }
@@ -389,6 +400,65 @@ fn archive_directory(root: &Path, out_path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn summarize_dist(root: &Path) -> Result<BundleSummary> {
+    let mut files = Vec::new();
+    let mut total_bytes = 0;
+    let mut js_bytes = 0;
+    let mut css_bytes = 0;
+
+    for path in collect_files(root)? {
+        let rel = path
+            .strip_prefix(root)
+            .map_err(|_| Error::InvalidFilePath {
+                path: path_string(&path),
+            })?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let size_bytes = file_len(&path)?;
+        let kind = bundle_file_kind(&path);
+
+        total_bytes += size_bytes;
+        match kind {
+            "js" => js_bytes += size_bytes,
+            "css" => css_bytes += size_bytes,
+            _ => {}
+        }
+
+        files.push(BundleFileSummary {
+            path: rel,
+            kind,
+            size_bytes,
+        });
+    }
+
+    Ok(BundleSummary {
+        files,
+        total_bytes,
+        js_bytes,
+        css_bytes,
+        archive_bytes: None,
+    })
+}
+
+fn bundle_file_kind(path: &Path) -> &'static str {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("js") => "js",
+        Some("css") => "css",
+        Some("map") => "map",
+        Some("json") => "json",
+        Some("html") => "html",
+        _ => "asset",
+    }
+}
+
+fn file_len(path: &Path) -> Result<u64> {
+    Ok(fs::metadata(path)
+        .context(ReadMetadataSnafu {
+            path: path.to_path_buf(),
+        })?
+        .len())
+}
+
 fn collect_files(root: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     collect_files_inner(root, &mut files)?;
@@ -418,6 +488,26 @@ fn write_result_json(out_dir: &Path, result: &JobResult) -> Result<()> {
     fs::write(out_dir.join("result.json"), output).context(WriteFileSnafu {
         path: out_dir.join("result.json"),
     })
+}
+
+fn generated_dependencies(files: &[VirtualFile]) -> Result<BTreeMap<String, String>> {
+    let Some(package_file) = files.iter().find(|file| file.path == "package.json") else {
+        return Ok(BTreeMap::new());
+    };
+    let package_json = serde_json::from_str::<serde_json::Value>(&package_file.content)
+        .context(ParseGeneratedPackageJsonSnafu)?;
+    let dependencies = package_json
+        .get("dependencies")
+        .and_then(|value| value.as_object())
+        .into_iter()
+        .flat_map(|items| items.iter())
+        .filter_map(|(name, version)| {
+            version
+                .as_str()
+                .map(|version| (name.clone(), version.to_owned()))
+        })
+        .collect();
+    Ok(dependencies)
 }
 
 fn write_text_or_stdout(out: Option<PathBuf>, content: &str) -> Result<()> {
@@ -586,6 +676,8 @@ struct BuildArtifacts {
     plan: BuildPlan,
     build_archive: PathBuf,
     project_archive: Option<PathBuf>,
+    bundle_summary: BundleSummary,
+    dependencies: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -596,6 +688,7 @@ struct JobResult {
     artifacts: Artifacts,
     project_archive: ProjectArchive,
     expectations: Option<forge_core::BuildExpectations>,
+    build: BuildSummary,
     timings: Timings,
     warnings: Vec<String>,
     errors: Vec<String>,
@@ -610,6 +703,7 @@ impl JobResult {
             artifacts: Artifacts::default(),
             project_archive: ProjectArchive::default(),
             expectations: None,
+            build: BuildSummary::default(),
             timings: Timings::default(),
             warnings: Vec::new(),
             errors: Vec::new(),
@@ -648,6 +742,51 @@ struct Artifacts {
 struct ProjectArchive {
     enabled: bool,
     path: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BuildSummary {
+    dependencies: BTreeMap<String, String>,
+    external_packages: Vec<String>,
+    minify: bool,
+    tree_shaking: TreeShakingSummary,
+    bundle: Option<BundleSummary>,
+}
+
+impl Default for BuildSummary {
+    fn default() -> Self {
+        let config = build_config_summary();
+        Self {
+            dependencies: BTreeMap::new(),
+            external_packages: config
+                .external_packages
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            minify: config.minify,
+            tree_shaking: config.tree_shaking,
+            bundle: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BundleSummary {
+    files: Vec<BundleFileSummary>,
+    total_bytes: u64,
+    js_bytes: u64,
+    css_bytes: u64,
+    archive_bytes: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BundleFileSummary {
+    path: String,
+    kind: &'static str,
+    size_bytes: u64,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -829,6 +968,12 @@ enum Error {
         source: std::io::Error,
     },
 
+    #[snafu(display("failed to read metadata for {}", path.display()))]
+    ReadMetadata {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
     #[snafu(display("failed to create directory {}", path.display()))]
     CreateDir {
         path: PathBuf,
@@ -843,6 +988,9 @@ enum Error {
         path: PathBuf,
         source: serde_json::Error,
     },
+
+    #[snafu(display("failed to parse generated package.json: {source}"))]
+    ParseGeneratedPackageJson { source: serde_json::Error },
 
     #[snafu(display("failed to serialize json: {source}"))]
     SerializeJson { source: serde_json::Error },

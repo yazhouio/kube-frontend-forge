@@ -1,13 +1,22 @@
 mod error;
+mod runtime_contract;
 mod types;
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use include_dir::{Dir, include_dir};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::Statement;
+use oxc_parser::Parser;
+use oxc_span::SourceType;
 use regex::Regex;
 use serde_json::Value;
 
 pub use error::{Error, Result};
+pub use runtime_contract::{
+    BuildConfigSummary, EXTERNAL_PACKAGES, PackageDependency, TreeShakingSummary,
+    build_config_summary,
+};
 pub use types::{
     BuildMeta, ExtensionManifest, GenerateProjectFilesOptions, GenerateProjectFilesResult,
     LocaleMeta, ManifestEnvelope, MenuMeta, PageMeta, RouteMeta, VirtualFile,
@@ -82,16 +91,23 @@ where
         path: "rollup.config.mjs".to_owned(),
         content: render_template(
             required_template(&scaffold, "rollup.config.mjs.tpl")?,
-            &BTreeMap::from([(
-                "MODULE_NAME_JSON".to_owned(),
-                json_string(
-                    normalized
-                        .build
-                        .as_ref()
-                        .and_then(|build| build.module_name.as_deref())
-                        .unwrap_or(&normalized.name),
+            &BTreeMap::from([
+                (
+                    "MODULE_NAME_JSON".to_owned(),
+                    json_string(
+                        normalized
+                            .build
+                            .as_ref()
+                            .and_then(|build| build.module_name.as_deref())
+                            .unwrap_or(&normalized.name),
+                    ),
                 ),
-            )]),
+                (
+                    "EXTERNAL_PACKAGES".to_owned(),
+                    serde_json::to_string_pretty(&runtime_contract::EXTERNAL_PACKAGES)
+                        .map_err(|source| Error::SerializeJson { source })?,
+                ),
+            ]),
         ),
     });
 
@@ -111,7 +127,7 @@ where
     render_locales(&merged_locales, &scaffold, &mut out)?;
     render_pages(&normalized, &scaffold, &renderer, &mut out)?;
 
-    let dependencies = render_dependency_entries(&out);
+    let dependencies = render_dependency_entries(&out)?;
     out.push(VirtualFile {
         path: "package.json".to_owned(),
         content: render_template(
@@ -555,9 +571,9 @@ fn warnings_for(options: GenerateProjectFilesOptions) -> Vec<String> {
     warnings
 }
 
-fn render_dependency_entries(files: &[VirtualFile]) -> String {
+fn render_dependency_entries(files: &[VirtualFile]) -> Result<String> {
     let versions = dependency_versions();
-    collect_source_dependency_packages(files)
+    Ok(collect_source_dependency_packages(files)?
         .into_iter()
         .filter_map(|package| {
             versions
@@ -565,46 +581,29 @@ fn render_dependency_entries(files: &[VirtualFile]) -> String {
                 .map(|version| format!("    {package:?}: {version:?}"))
         })
         .collect::<Vec<_>>()
-        .join(",\n")
+        .join(",\n"))
 }
 
 fn dependency_versions() -> BTreeMap<&'static str, &'static str> {
-    BTreeMap::from([
-        ("@frontend-forge/forge-components", "^0.1.0"),
-        ("@ks-console/shared", "4.2.1"),
-        ("@kubed/charts", "^0.2.35"),
-        ("@kubed/code-editor", "^0.2.35"),
-        ("@kubed/components", "^0.2.35"),
-        ("@kubed/hooks", "^0.2.35"),
-        ("@kubed/icons", "^0.2.35"),
-        ("@tanstack/react-table", "^8.21.3"),
-        ("es-toolkit", "^1.43.0"),
-        ("js-yaml", "^3.13.1"),
-        ("qs", "6.14.1"),
-        ("react", "^17.0.2"),
-        ("react-dom", "^17.0.2"),
-        ("react-query", "^3.32.1"),
-        ("react-router-dom", "^6.22.3"),
-        ("semver", "^7.7.3"),
-        ("styled-components", "5.3.3"),
-        ("swr", "^2.3.8"),
-        ("zustand", "^4.5.5"),
-    ])
+    runtime_contract::DEPENDENCIES
+        .iter()
+        .map(|dependency| (dependency.name, dependency.version))
+        .collect()
 }
 
-fn collect_source_dependency_packages(files: &[VirtualFile]) -> BTreeSet<String> {
+fn collect_source_dependency_packages(files: &[VirtualFile]) -> Result<BTreeSet<String>> {
     let mut packages = BTreeSet::<String>::new();
     for file in files {
         if !is_source_dependency_file(&file.path) {
             continue;
         }
-        for specifier in collect_module_specifiers(&file.content) {
+        for specifier in collect_module_specifiers(&file.path, &file.content)? {
             if let Some(package) = package_name_for_module(&specifier) {
                 packages.insert(package);
             }
         }
     }
-    packages
+    Ok(packages)
 }
 
 fn is_source_dependency_file(path: &str) -> bool {
@@ -617,21 +616,35 @@ fn is_source_dependency_file(path: &str) -> bool {
     )
 }
 
-fn collect_module_specifiers(content: &str) -> BTreeSet<String> {
+fn collect_module_specifiers(path: &str, content: &str) -> Result<BTreeSet<String>> {
     let mut specifiers = BTreeSet::<String>::new();
-    for pattern in [
-        r#"(?m)\bfrom\s*["']([^"']+)["']"#,
-        r#"(?m)\bimport\s*["']([^"']+)["']"#,
-        r#"(?m)\brequire\(\s*["']([^"']+)["']\s*\)"#,
-    ] {
-        let re = Regex::new(pattern).expect("valid import regex");
-        for captures in re.captures_iter(content) {
-            if let Some(specifier) = captures.get(1) {
-                specifiers.insert(specifier.as_str().to_owned());
+
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, content, SourceType::tsx()).parse();
+    if !parsed.errors.is_empty() || parsed.panicked {
+        return Err(Error::ParseModuleImports {
+            path: path.to_owned(),
+            message: format_oxc_errors(&parsed.errors, parsed.panicked),
+        });
+    }
+
+    for statement in &parsed.program.body {
+        match statement {
+            Statement::ImportDeclaration(declaration) => {
+                specifiers.insert(declaration.source.value.as_str().to_owned());
             }
+            Statement::ExportAllDeclaration(declaration) => {
+                specifiers.insert(declaration.source.value.as_str().to_owned());
+            }
+            Statement::ExportNamedDeclaration(declaration) => {
+                if let Some(source) = &declaration.source {
+                    specifiers.insert(source.value.as_str().to_owned());
+                }
+            }
+            _ => {}
         }
     }
-    specifiers
+    Ok(specifiers)
 }
 
 fn package_name_for_module(specifier: &str) -> Option<String> {
@@ -777,6 +790,25 @@ fn json_string(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_owned())
 }
 
+fn format_oxc_errors(errors: &[impl std::fmt::Display], panicked: bool) -> String {
+    if errors.is_empty() {
+        return if panicked {
+            "parser panicked".to_owned()
+        } else {
+            "unknown parser error".to_owned()
+        };
+    }
+    let mut message = errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ");
+    if panicked {
+        message.push_str("; parser panicked");
+    }
+    message
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -892,8 +924,8 @@ mod tests {
             .iter()
             .find(|file| file.path == "rollup.config.mjs")
             .unwrap();
-        assert!(rollup_config.content.contains("'@ks-console/shared'"));
-        assert!(rollup_config.content.contains("'react'"));
+        assert!(rollup_config.content.contains("\"@ks-console/shared\""));
+        assert!(rollup_config.content.contains("\"react\""));
         assert!(!rollup_config.content.contains("'zustand'"));
         assert!(rollup_config.content.contains("replaceNodeEnv()"));
         assert!(rollup_config.content.contains("preset: 'smallest'"));
@@ -936,6 +968,36 @@ export default function {}() {{ return null; }}"#,
         assert!(dependencies.contains_key("swr"));
         assert!(!dependencies.contains_key("@kubed/charts"));
         assert!(!dependencies.contains_key("@kubed/hooks"));
+    }
+
+    #[test]
+    fn package_dependency_scan_ignores_comments_and_strings() {
+        let manifest = sample_manifest();
+        let result = generate_project_files(
+            &manifest,
+            |page: &PageMeta, _manifest: &ExtensionManifest| {
+                Ok(format!(
+                    r#"// import useSWR from "swr";
+const text = 'import {{ Chart }} from "@kubed/charts"';
+
+export default function {}() {{ return null; }}"#,
+                    page.entry_component
+                ))
+            },
+            GenerateProjectFilesOptions::default(),
+        )
+        .unwrap();
+
+        let package_json = result
+            .files
+            .iter()
+            .find(|file| file.path == "package.json")
+            .unwrap();
+        let package_json = serde_json::from_str::<Value>(&package_json.content).unwrap();
+        let dependencies = package_json["dependencies"].as_object().unwrap();
+
+        assert!(!dependencies.contains_key("@kubed/charts"));
+        assert!(!dependencies.contains_key("swr"));
     }
 
     #[test]

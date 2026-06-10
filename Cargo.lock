@@ -381,6 +381,10 @@ name = "forge-project-generator"
 version = "0.1.0"
 dependencies = [
  "include_dir",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_parser",
+ "oxc_span",
  "regex",
  "serde",
  "serde_json",

@@ -40,6 +40,9 @@ pub enum Error {
     #[snafu(display("failed to render page {page_id}: {message}"))]
     RenderPage { page_id: String, message: String },
 
+    #[snafu(display("failed to parse module imports in {path}: {message}"))]
+    ParseModuleImports { path: String, message: String },
+
     #[snafu(display("manifest is required"))]
     MissingManifest,
 

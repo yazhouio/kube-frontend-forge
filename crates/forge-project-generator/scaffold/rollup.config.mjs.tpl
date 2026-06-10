@@ -18,6 +18,7 @@ const externalPackages = [
 ];
 
 const external = (id) => externalPackages.includes(id);
+const hasStyleSideEffects = (id) => /\.(css|less|sass|scss|styl)(\?.*)?$/.test(id);
 
 function replaceNodeEnv() {
   const production = JSON.stringify('production');
@@ -55,7 +56,10 @@ export default {
     chunkFileNames: 'chunks/[name]-[hash].js',
     assetFileNames: 'assets/[name][extname]',
   },
-  treeshake: true,
+  treeshake: {
+    preset: 'smallest',
+    moduleSideEffects: (id, external) => external || hasStyleSideEffects(id),
+  },
   plugins: [
     replaceNodeEnv(),
     nodeResolve({

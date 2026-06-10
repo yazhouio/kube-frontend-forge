@@ -79,17 +79,6 @@ where
     }
 
     out.push(VirtualFile {
-        path: "package.json".to_owned(),
-        content: render_template(
-            required_template(&scaffold, "package.json.tpl")?,
-            &BTreeMap::from([
-                ("NAME".to_owned(), normalized.name.clone()),
-                ("VERSION".to_owned(), normalized.version.clone()),
-            ]),
-        ),
-    });
-
-    out.push(VirtualFile {
         path: "rollup.config.mjs".to_owned(),
         content: render_template(
             required_template(&scaffold, "rollup.config.mjs.tpl")?,
@@ -121,6 +110,19 @@ where
     render_routes(&normalized, &scaffold, &mut out)?;
     render_locales(&merged_locales, &scaffold, &mut out)?;
     render_pages(&normalized, &scaffold, &renderer, &mut out)?;
+
+    let dependencies = render_dependency_entries(&out);
+    out.push(VirtualFile {
+        path: "package.json".to_owned(),
+        content: render_template(
+            required_template(&scaffold, "package.json.tpl")?,
+            &BTreeMap::from([
+                ("NAME".to_owned(), normalized.name.clone()),
+                ("VERSION".to_owned(), normalized.version.clone()),
+                ("DEPENDENCIES".to_owned(), dependencies),
+            ]),
+        ),
+    });
 
     Ok(GenerateProjectFilesResult {
         files: out,
@@ -553,6 +555,102 @@ fn warnings_for(options: GenerateProjectFilesOptions) -> Vec<String> {
     warnings
 }
 
+fn render_dependency_entries(files: &[VirtualFile]) -> String {
+    let versions = dependency_versions();
+    collect_source_dependency_packages(files)
+        .into_iter()
+        .filter_map(|package| {
+            versions
+                .get(package.as_str())
+                .map(|version| format!("    {package:?}: {version:?}"))
+        })
+        .collect::<Vec<_>>()
+        .join(",\n")
+}
+
+fn dependency_versions() -> BTreeMap<&'static str, &'static str> {
+    BTreeMap::from([
+        ("@frontend-forge/forge-components", "^0.1.0"),
+        ("@ks-console/shared", "4.2.1"),
+        ("@kubed/charts", "^0.2.35"),
+        ("@kubed/code-editor", "^0.2.35"),
+        ("@kubed/components", "^0.2.35"),
+        ("@kubed/hooks", "^0.2.35"),
+        ("@kubed/icons", "^0.2.35"),
+        ("@tanstack/react-table", "^8.21.3"),
+        ("es-toolkit", "^1.43.0"),
+        ("js-yaml", "^3.13.1"),
+        ("qs", "6.14.1"),
+        ("react", "^17.0.2"),
+        ("react-dom", "^17.0.2"),
+        ("react-query", "^3.32.1"),
+        ("react-router-dom", "^6.22.3"),
+        ("semver", "^7.7.3"),
+        ("styled-components", "5.3.3"),
+        ("swr", "^2.3.8"),
+        ("zustand", "^4.5.5"),
+    ])
+}
+
+fn collect_source_dependency_packages(files: &[VirtualFile]) -> BTreeSet<String> {
+    let mut packages = BTreeSet::<String>::new();
+    for file in files {
+        if !is_source_dependency_file(&file.path) {
+            continue;
+        }
+        for specifier in collect_module_specifiers(&file.content) {
+            if let Some(package) = package_name_for_module(&specifier) {
+                packages.insert(package);
+            }
+        }
+    }
+    packages
+}
+
+fn is_source_dependency_file(path: &str) -> bool {
+    if !path.starts_with("src/") {
+        return false;
+    }
+    matches!(
+        path.rsplit_once('.').map(|(_, ext)| ext),
+        Some("js" | "jsx" | "mjs" | "ts" | "tsx")
+    )
+}
+
+fn collect_module_specifiers(content: &str) -> BTreeSet<String> {
+    let mut specifiers = BTreeSet::<String>::new();
+    for pattern in [
+        r#"(?m)\bfrom\s*["']([^"']+)["']"#,
+        r#"(?m)\bimport\s*["']([^"']+)["']"#,
+        r#"(?m)\brequire\(\s*["']([^"']+)["']\s*\)"#,
+    ] {
+        let re = Regex::new(pattern).expect("valid import regex");
+        for captures in re.captures_iter(content) {
+            if let Some(specifier) = captures.get(1) {
+                specifiers.insert(specifier.as_str().to_owned());
+            }
+        }
+    }
+    specifiers
+}
+
+fn package_name_for_module(specifier: &str) -> Option<String> {
+    if specifier.starts_with('.')
+        || specifier.starts_with('/')
+        || specifier.starts_with("node:")
+        || specifier.contains("://")
+    {
+        return None;
+    }
+    if specifier.starts_with('@') {
+        let mut parts = specifier.split('/');
+        let scope = parts.next()?;
+        let name = parts.next()?;
+        return Some(format!("{scope}/{name}"));
+    }
+    specifier.split('/').next().map(str::to_owned)
+}
+
 fn render_template(content: &str, vars: &BTreeMap<String, String>) -> String {
     let mut out = content.to_owned();
     for (key, value) in vars {
@@ -772,6 +870,23 @@ mod tests {
                 .contains("\"skipWorkspaceAuth\": true")
         );
 
+        let package_json = result
+            .files
+            .iter()
+            .find(|file| file.path == "package.json")
+            .unwrap();
+        let package_json = serde_json::from_str::<Value>(&package_json.content).unwrap();
+        let dependencies = package_json["dependencies"].as_object().unwrap();
+        assert!(dependencies.contains_key("@frontend-forge/forge-components"));
+        assert!(dependencies.contains_key("@ks-console/shared"));
+        assert!(dependencies.contains_key("react"));
+        assert!(dependencies.contains_key("react-router-dom"));
+        assert!(!dependencies.contains_key("@kubed/charts"));
+        assert!(!dependencies.contains_key("@kubed/hooks"));
+        assert!(!dependencies.contains_key("react-dom"));
+        assert!(!dependencies.contains_key("swr"));
+        assert!(!dependencies.contains_key("zustand"));
+
         let rollup_config = result
             .files
             .iter()
@@ -781,10 +896,46 @@ mod tests {
         assert!(rollup_config.content.contains("'react'"));
         assert!(!rollup_config.content.contains("'zustand'"));
         assert!(rollup_config.content.contains("replaceNodeEnv()"));
+        assert!(rollup_config.content.contains("preset: 'smallest'"));
+        assert!(rollup_config.content.contains("moduleSideEffects"));
         assert!(rollup_config.content.contains("terser("));
         assert!(rollup_config.content.contains("process.env.NODE_ENV"));
         assert!(rollup_config.content.contains("format: 'system'"));
         assert!(!rollup_config.content.contains("__MODULE_NAME_JSON__"));
+    }
+
+    #[test]
+    fn package_dependencies_follow_generated_page_imports() {
+        let manifest = sample_manifest();
+        let result = generate_project_files(
+            &manifest,
+            |page: &PageMeta, _manifest: &ExtensionManifest| {
+                Ok(format!(
+                    r#"import useSWR from "swr";
+import {{ get }} from "es-toolkit/compat";
+import {{ CodeEditor }} from "@kubed/code-editor";
+
+export default function {}() {{ return null; }}"#,
+                    page.entry_component
+                ))
+            },
+            GenerateProjectFilesOptions::default(),
+        )
+        .unwrap();
+
+        let package_json = result
+            .files
+            .iter()
+            .find(|file| file.path == "package.json")
+            .unwrap();
+        let package_json = serde_json::from_str::<Value>(&package_json.content).unwrap();
+        let dependencies = package_json["dependencies"].as_object().unwrap();
+
+        assert!(dependencies.contains_key("@kubed/code-editor"));
+        assert!(dependencies.contains_key("es-toolkit"));
+        assert!(dependencies.contains_key("swr"));
+        assert!(!dependencies.contains_key("@kubed/charts"));
+        assert!(!dependencies.contains_key("@kubed/hooks"));
     }
 
     #[test]

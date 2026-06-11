@@ -18,10 +18,14 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let command = std::env::args().nth(1).unwrap_or_else(|| "help".to_owned());
+    let mut args = std::env::args().skip(1);
+    let command = args.next().unwrap_or_else(|| "help".to_owned());
+    let command_args = args.collect::<Vec<_>>();
     match command.as_str() {
         "generate-schemas" => generate_schemas(),
         "check-schemas" => check_schemas(),
+        "fmt" => fmt(&command_args),
+        "clippy" => clippy(&command_args),
         "verify" => verify(),
         "help" | "--help" | "-h" => {
             print_help();
@@ -32,12 +36,41 @@ fn run() -> Result<()> {
 }
 
 fn print_help() {
-    println!("usage: cargo run -p xtask -- <generate-schemas|check-schemas|verify>");
+    println!(
+        "usage: cargo run -p xtask -- <generate-schemas|check-schemas|fmt [--check]|clippy|verify>"
+    );
 }
 
 fn verify() -> Result<()> {
     check_schemas()?;
-    run_cargo(&["fmt", "--all", "--", "--check"])?;
+    run_fmt(true)?;
+    run_clippy()
+}
+
+fn fmt(args: &[String]) -> Result<()> {
+    match args {
+        [] => run_fmt(false),
+        [arg] if arg == "--check" => run_fmt(true),
+        _ => Err("usage: cargo run -p xtask -- fmt [--check]".into()),
+    }
+}
+
+fn clippy(args: &[String]) -> Result<()> {
+    if !args.is_empty() {
+        return Err("usage: cargo run -p xtask -- clippy".into());
+    }
+    run_clippy()
+}
+
+fn run_fmt(check: bool) -> Result<()> {
+    if check {
+        run_cargo(&["fmt", "--all", "--", "--check"])
+    } else {
+        run_cargo(&["fmt", "--all"])
+    }
+}
+
+fn run_clippy() -> Result<()> {
     run_cargo(&[
         "clippy",
         "--workspace",

@@ -1,4 +1,8 @@
 pre-commit:
   commands:
-    verify:
-      run: cargo run -p xtask -- verify
+    check-schemas:
+      run: cargo run -p xtask -- check-schemas
+    fmt:
+      run: cargo run -p xtask -- fmt --check
+    clippy:
+      run: cargo run -p xtask -- clippy

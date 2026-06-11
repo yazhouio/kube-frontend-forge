@@ -29,7 +29,7 @@ RUN --mount=type=cache,id=forge-pnpm-store,target=/pnpm/store \
       pnpm config delete "//internal-registry.npm.kubesphere.com.cn/:always-auth" >/dev/null 2>&1 || true; \
     }; \
     trap cleanup EXIT; \
-    if [ -f /run/secrets/npm_auth_base64 ]; then \
+    if [ -s /run/secrets/npm_auth_base64 ]; then \
       NPM_AUTH_BASE64="$(cat /run/secrets/npm_auth_base64)"; \
       pnpm config set "//internal-registry.npm.kubesphere.com.cn/:_auth" "$NPM_AUTH_BASE64"; \
       pnpm config set "//internal-registry.npm.kubesphere.com.cn/:always-auth" true; \

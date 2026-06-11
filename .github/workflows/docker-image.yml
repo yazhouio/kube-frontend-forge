@@ -10,62 +10,74 @@ on:
     types:
       - published
 
-env:
-  IMAGE_NAME: spike2044/frontend-forge-job
-
 jobs:
   build-pr-image:
-    name: Build PR image
+    name: Build PR image (${{ matrix.image }}:${{ matrix.target }})
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
     strategy:
       matrix:
-        target:
-          - prod
-          - dev
+        include:
+          - image: spike2044/frontend-forge-job
+            target: prod
+            variant: prod
+          - image: spike2044/frontend-forge-job
+            target: dev
+            variant: dev
+          - image: spike2044/frontend-forge-server
+            target: server-prod
+            variant: prod
+          - image: spike2044/frontend-forge-server
+            target: server-dev
+            variant: dev
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure private npm registry auth
-        run: |
-          if [ -n "${NPM_AUTH_BASE64:-}" ]; then
-            printf '\n//internal-registry.npm.kubesphere.com.cn/:_auth=%s\n' "${NPM_AUTH_BASE64}" >> .npmrc
-          fi
-        env:
-          NPM_AUTH_BASE64: ${{ secrets.NPM_AUTH_BASE64 }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
+      - name: Build ${{ matrix.image }}:${{ matrix.variant }}
         uses: docker/build-push-action@v6
         with:
           context: .
           file: crates/forge-job/Dockerfile
           target: ${{ matrix.target }}
           push: false
-          tags: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}-${{ matrix.target }}
+          tags: ${{ matrix.image }}:pr-${{ github.event.pull_request.number }}-${{ matrix.variant }}
+          secrets: |
+            npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}
 
   build-release-image:
-    name: Build and push release image
+    name: Build and push release image (${{ matrix.image }}:${{ matrix.target }})
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      matrix:
+        include:
+          - image: spike2044/frontend-forge-job
+            target: prod
+            tag_suffix: ""
+            latest_suffix: ""
+          - image: spike2044/frontend-forge-job
+            target: dev
+            tag_suffix: "-dev"
+            latest_suffix: "-dev"
+          - image: spike2044/frontend-forge-server
+            target: server-prod
+            tag_suffix: ""
+            latest_suffix: ""
+          - image: spike2044/frontend-forge-server
+            target: server-dev
+            tag_suffix: "-dev"
+            latest_suffix: "-dev"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Configure private npm registry auth
-        run: |
-          if [ -n "${NPM_AUTH_BASE64:-}" ]; then
-            printf '\n//internal-registry.npm.kubesphere.com.cn/:_auth=%s\n' "${NPM_AUTH_BASE64}" >> .npmrc
-          fi
-        env:
-          NPM_AUTH_BASE64: ${{ secrets.NPM_AUTH_BASE64 }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -83,59 +95,48 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ matrix.image }}
           tags: |
-            type=raw,value=${{ github.event.release.tag_name }}
-            type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}
+            type=raw,value=${{ github.event.release.tag_name }}${{ matrix.tag_suffix }}
+            type=raw,value=latest${{ matrix.latest_suffix }},enable=${{ github.event.release.prerelease == false }}
 
-      - name: Build and push Docker image
+      - name: Build and push ${{ matrix.image }}
         uses: docker/build-push-action@v6
         with:
           context: .
           file: crates/forge-job/Dockerfile
-          target: prod
+          target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-      - name: Generate dev image metadata
-        id: meta-dev
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=${{ github.event.release.tag_name }}-dev
-            type=raw,value=latest-dev,enable=${{ github.event.release.prerelease == false }}
-
-      - name: Build and push dev Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: crates/forge-job/Dockerfile
-          target: dev
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-dev.outputs.tags }}
-          labels: ${{ steps.meta-dev.outputs.labels }}
+          secrets: |
+            npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}
 
   build-branch-image:
-    name: Build and push branch image
+    name: Build and push branch image (${{ matrix.image }}:${{ matrix.target }})
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      matrix:
+        include:
+          - image: spike2044/frontend-forge-job
+            target: prod
+            tag_suffix: ""
+          - image: spike2044/frontend-forge-job
+            target: dev
+            tag_suffix: "-dev"
+          - image: spike2044/frontend-forge-server
+            target: server-prod
+            tag_suffix: ""
+          - image: spike2044/frontend-forge-server
+            target: server-dev
+            tag_suffix: "-dev"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Configure private npm registry auth
-        run: |
-          if [ -n "${NPM_AUTH_BASE64:-}" ]; then
-            printf '\n//internal-registry.npm.kubesphere.com.cn/:_auth=%s\n' "${NPM_AUTH_BASE64}" >> .npmrc
-          fi
-        env:
-          NPM_AUTH_BASE64: ${{ secrets.NPM_AUTH_BASE64 }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -153,38 +154,20 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ matrix.image }}
           tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
+            type=ref,event=branch,suffix=${{ matrix.tag_suffix }}
+            type=sha,prefix={{branch}}-,suffix=${{ matrix.tag_suffix }}
 
-      - name: Build and push Docker image
+      - name: Build and push ${{ matrix.image }}
         uses: docker/build-push-action@v6
         with:
           context: .
           file: crates/forge-job/Dockerfile
-          target: prod
+          target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-      - name: Generate dev image metadata
-        id: meta-dev
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch,suffix=-dev
-            type=sha,prefix={{branch}}-,suffix=-dev
-
-      - name: Build and push dev Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: crates/forge-job/Dockerfile
-          target: dev
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-dev.outputs.tags }}
-          labels: ${{ steps.meta-dev.outputs.labels }}
+          secrets: |
+            npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}

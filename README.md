@@ -110,6 +110,25 @@ NPM_AUTH_BASE64='***' docker build \
   -t frontend-forge-job:dev .
 ```
 
+Build the HTTP server image:
+
+```bash
+NPM_AUTH_BASE64='***' docker build \
+  -f crates/forge-job/Dockerfile \
+  --target server-prod \
+  --secret id=npm_auth_base64,env=NPM_AUTH_BASE64 \
+  -t frontend-forge-server:prod .
+```
+
+Run the HTTP server with TOML config:
+
+```bash
+docker run --rm -p 3000:3000 \
+  -v /Users/yazhou/code/frontend-forge/examples/server.toml:/config/server.toml:ro \
+  frontend-forge-server:prod \
+  --config /config/server.toml
+```
+
 Run a smoke test:
 
 ```bash

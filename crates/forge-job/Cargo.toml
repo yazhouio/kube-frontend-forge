@@ -14,6 +14,7 @@ path = "src/server.rs"
 
 [dependencies]
 axum.workspace = true
+figment.workspace = true
 flate2.workspace = true
 forge-core = { path = "../forge-core" }
 forge-project-generator = { path = "../forge-project-generator" }
@@ -24,5 +25,4 @@ snafu.workspace = true
 tar.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
-toml.workspace = true
 tower-http.workspace = true

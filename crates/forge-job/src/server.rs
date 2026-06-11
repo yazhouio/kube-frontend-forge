@@ -14,10 +14,14 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use figment::{
+    Figment,
+    providers::{Env, Format, Serialized, Toml},
+};
 use flate2::{Compression, write::GzEncoder};
 use forge_core::ForgeCore;
 use forge_project_generator::{ExtensionManifest, VirtualFile, unwrap_manifest};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tower_http::services::ServeDir;
@@ -53,10 +57,11 @@ async fn main() {
 
 async fn run() -> Result<()> {
     let options = parse_server_options()?;
-    let config = load_server_config(options.config_path.as_deref())?;
+    let config = load_server_config(&options)?;
+    let addr = parse_bind_addr(&config.addr)?;
     let app = build_router(config)?;
-    let listener = tokio::net::TcpListener::bind(options.addr).await?;
-    println!("frontend-forge-server listening on http://{}", options.addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    println!("frontend-forge-server listening on http://{addr}");
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -86,24 +91,21 @@ where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
-    let mut addr =
-        env::var("FRONTEND_FORGE_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_owned());
-    let mut config_path = env::var("FRONTEND_FORGE_SERVER_CONFIG")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from);
+    let mut addr = None;
+    let mut config_path = None;
     let mut args = args.into_iter().map(Into::into);
     while let Some(arg) = args.next() {
         if let Some(value) = arg.strip_prefix("--addr=") {
-            addr = value.to_owned();
+            addr = Some(value.to_owned());
         } else if let Some(value) = arg.strip_prefix("--config=") {
             config_path = Some(PathBuf::from(value));
         } else {
             match arg.as_str() {
                 "--addr" => {
-                    addr = args
-                        .next()
-                        .ok_or_else(|| ServerError::bad_request("missing value for --addr"))?;
+                    addr = Some(
+                        args.next()
+                            .ok_or_else(|| ServerError::bad_request("missing value for --addr"))?,
+                    );
                 }
                 "--config" => {
                     config_path =
@@ -119,32 +121,45 @@ where
             }
         }
     }
-    let addr = addr
-        .parse()
-        .map_err(|source| ServerError::bad_request(format!("invalid addr `{addr}`: {source}")))?;
     Ok(ServerOptions { addr, config_path })
 }
 
-fn load_server_config(path: Option<&Path>) -> Result<ServerConfig> {
-    let Some(path) = path else {
-        return Ok(ServerConfig::default());
-    };
-    let content = fs::read_to_string(path).map_err(|source| {
-        ServerError::internal(format!(
-            "failed to read server config `{}`: {source}",
-            path.display()
-        ))
-    })?;
-    parse_server_config(&content).map_err(|source| {
-        ServerError::bad_request(format!(
-            "failed to parse server config `{}`: {source}",
-            path.display()
-        ))
+fn load_server_config(options: &ServerOptions) -> Result<ServerConfig> {
+    let config_path = options.config_path.clone().or_else(env_server_config_path);
+
+    let mut figment = Figment::from(Serialized::defaults(ServerConfig::default()));
+    if let Some(path) = config_path {
+        figment = figment.merge(Toml::file(path));
+    }
+    figment = figment.merge(Env::prefixed("FRONTEND_FORGE_SERVER_").ignore(&["config"]));
+    if let Some(addr) = &options.addr {
+        figment = figment.merge(Serialized::default("addr", addr));
+    }
+
+    figment.extract().map_err(|source| {
+        ServerError::bad_request(format!("failed to load server config: {source}"))
     })
 }
 
-fn parse_server_config(content: &str) -> std::result::Result<ServerConfig, toml::de::Error> {
-    toml::from_str(content)
+fn env_server_config_path() -> Option<PathBuf> {
+    Figment::from(Env::prefixed("FRONTEND_FORGE_SERVER_"))
+        .extract_inner::<String>("config")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+}
+
+#[cfg(test)]
+fn parse_server_config(content: &str) -> std::result::Result<ServerConfig, Box<figment::Error>> {
+    Figment::from(Serialized::defaults(ServerConfig::default()))
+        .merge(Toml::string(content))
+        .extract()
+        .map_err(Box::new)
+}
+
+fn parse_bind_addr(addr: &str) -> Result<SocketAddr> {
+    addr.parse()
+        .map_err(|source| ServerError::bad_request(format!("invalid addr `{addr}`: {source}")))
 }
 
 fn normalize_static_prefix(prefix: &str) -> Result<String> {
@@ -177,18 +192,33 @@ fn normalize_static_prefix(prefix: &str) -> Result<String> {
 
 #[derive(Debug)]
 struct ServerOptions {
-    addr: SocketAddr,
+    addr: Option<String>,
     config_path: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ServerConfig {
+    #[serde(default = "default_server_addr")]
+    addr: String,
     #[serde(default, rename = "static")]
     static_routes: Vec<StaticRouteConfig>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            addr: default_server_addr(),
+            static_routes: Vec::new(),
+        }
+    }
+}
+
+fn default_server_addr() -> String {
+    "127.0.0.1:3000".to_owned()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StaticRouteConfig {
     root: PathBuf,
@@ -703,6 +733,7 @@ prefix = "/dist/frontend-forge/"
         )
         .expect("server config should parse");
 
+        assert_eq!(config.addr, "127.0.0.1:3000");
         assert_eq!(config.static_routes.len(), 1);
         assert_eq!(
             config.static_routes[0].root,
@@ -740,10 +771,22 @@ prefix = "/dist/frontend-forge/"
         ])
         .expect("server options should parse");
 
-        assert_eq!(options.addr.to_string(), "127.0.0.1:3901");
+        assert_eq!(options.addr.as_deref(), Some("127.0.0.1:3901"));
         assert_eq!(
             options.config_path,
             Some(PathBuf::from("examples/server.toml"))
         );
+    }
+
+    #[test]
+    fn parses_server_config_addr() {
+        let config = parse_server_config(
+            r#"
+addr = "0.0.0.0:3000"
+"#,
+        )
+        .expect("server config should parse");
+
+        assert_eq!(config.addr, "0.0.0.0:3000");
     }
 }

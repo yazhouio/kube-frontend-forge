@@ -17,8 +17,10 @@ use axum::{
 use flate2::{Compression, write::GzEncoder};
 use forge_core::ForgeCore;
 use forge_project_generator::{ExtensionManifest, VirtualFile, unwrap_manifest};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tempfile::TempDir;
+use tower_http::services::ServeDir;
 
 type Result<T, E = ServerError> = std::result::Result<T, E>;
 
@@ -50,39 +52,147 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
-    let addr = parse_addr()?;
-    let app = Router::new()
-        .route("/schemas/{name}", get(schema_file))
-        .route("/project/files", post(project_files))
-        .route("/project/files.tar.gz", post(project_files_tar))
-        .route("/api/project/build", post(project_build))
-        .route("/api/project/build.tar.gz", post(project_build_tar));
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    println!("frontend-forge-server listening on http://{addr}");
+    let options = parse_server_options()?;
+    let config = load_server_config(options.config_path.as_deref())?;
+    let app = build_router(config)?;
+    let listener = tokio::net::TcpListener::bind(options.addr).await?;
+    println!("frontend-forge-server listening on http://{}", options.addr);
     axum::serve(listener, app).await?;
     Ok(())
 }
 
-fn parse_addr() -> Result<SocketAddr> {
+fn build_router(config: ServerConfig) -> Result<Router> {
+    let mut app = Router::new()
+        .route("/schemas/{name}", get(schema_file))
+        .route("/api/project/files", post(project_files))
+        .route("/api/project/files.tar.gz", post(project_files_tar))
+        .route("/api/project/build", post(project_build))
+        .route("/api/project/build.tar.gz", post(project_build_tar));
+
+    for route in config.static_routes {
+        let prefix = normalize_static_prefix(&route.prefix)?;
+        app = app.nest_service(&prefix, ServeDir::new(route.root));
+    }
+
+    Ok(app)
+}
+
+fn parse_server_options() -> Result<ServerOptions> {
+    parse_server_options_from(env::args().skip(1))
+}
+
+fn parse_server_options_from<I, S>(args: I) -> Result<ServerOptions>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
     let mut addr =
         env::var("FRONTEND_FORGE_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_owned());
-    let mut args = env::args().skip(1);
+    let mut config_path = env::var("FRONTEND_FORGE_SERVER_CONFIG")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from);
+    let mut args = args.into_iter().map(Into::into);
     while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--addr" => {
-                addr = args
-                    .next()
-                    .ok_or_else(|| ServerError::bad_request("missing value for --addr"))?;
-            }
-            _ => {
-                return Err(ServerError::bad_request(format!(
-                    "unknown argument `{arg}`"
-                )));
+        if let Some(value) = arg.strip_prefix("--addr=") {
+            addr = value.to_owned();
+        } else if let Some(value) = arg.strip_prefix("--config=") {
+            config_path = Some(PathBuf::from(value));
+        } else {
+            match arg.as_str() {
+                "--addr" => {
+                    addr = args
+                        .next()
+                        .ok_or_else(|| ServerError::bad_request("missing value for --addr"))?;
+                }
+                "--config" => {
+                    config_path =
+                        Some(PathBuf::from(args.next().ok_or_else(|| {
+                            ServerError::bad_request("missing value for --config")
+                        })?));
+                }
+                _ => {
+                    return Err(ServerError::bad_request(format!(
+                        "unknown argument `{arg}`"
+                    )));
+                }
             }
         }
     }
-    addr.parse()
-        .map_err(|source| ServerError::bad_request(format!("invalid addr `{addr}`: {source}")))
+    let addr = addr
+        .parse()
+        .map_err(|source| ServerError::bad_request(format!("invalid addr `{addr}`: {source}")))?;
+    Ok(ServerOptions { addr, config_path })
+}
+
+fn load_server_config(path: Option<&Path>) -> Result<ServerConfig> {
+    let Some(path) = path else {
+        return Ok(ServerConfig::default());
+    };
+    let content = fs::read_to_string(path).map_err(|source| {
+        ServerError::internal(format!(
+            "failed to read server config `{}`: {source}",
+            path.display()
+        ))
+    })?;
+    parse_server_config(&content).map_err(|source| {
+        ServerError::bad_request(format!(
+            "failed to parse server config `{}`: {source}",
+            path.display()
+        ))
+    })
+}
+
+fn parse_server_config(content: &str) -> std::result::Result<ServerConfig, toml::de::Error> {
+    toml::from_str(content)
+}
+
+fn normalize_static_prefix(prefix: &str) -> Result<String> {
+    let prefix = prefix.trim();
+    if prefix.is_empty() {
+        return Err(ServerError::bad_request("static prefix cannot be empty"));
+    }
+    if !prefix.starts_with('/') {
+        return Err(ServerError::bad_request(format!(
+            "static prefix must start with `/`: {prefix}"
+        )));
+    }
+    if prefix.contains('*') {
+        return Err(ServerError::bad_request(format!(
+            "static prefix cannot contain `*`: {prefix}"
+        )));
+    }
+    if prefix != "/" && prefix.contains("//") {
+        return Err(ServerError::bad_request(format!(
+            "static prefix cannot contain empty path segments: {prefix}"
+        )));
+    }
+    let normalized = if prefix == "/" {
+        prefix.to_owned()
+    } else {
+        prefix.trim_end_matches('/').to_owned()
+    };
+    Ok(normalized)
+}
+
+#[derive(Debug)]
+struct ServerOptions {
+    addr: SocketAddr,
+    config_path: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerConfig {
+    #[serde(default, rename = "static")]
+    static_routes: Vec<StaticRouteConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StaticRouteConfig {
+    root: PathBuf,
+    prefix: String,
 }
 
 async fn schema_file(AxumPath(name): AxumPath<String>) -> Result<Response> {
@@ -566,7 +676,11 @@ impl From<tokio::task::JoinError> for ServerError {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_js_comments;
+    use std::path::PathBuf;
+
+    use super::{
+        normalize_static_prefix, parse_server_config, parse_server_options_from, strip_js_comments,
+    };
 
     #[test]
     fn js_comment_import_type_does_not_count_as_dynamic_import() {
@@ -576,5 +690,60 @@ mod tests {
 
         assert!(stripped.contains("System.register"));
         assert!(!stripped.contains("import("));
+    }
+
+    #[test]
+    fn parses_static_server_config() {
+        let config = parse_server_config(
+            r#"
+[[static]]
+root = "/app/server/v4dist"
+prefix = "/dist/frontend-forge/"
+"#,
+        )
+        .expect("server config should parse");
+
+        assert_eq!(config.static_routes.len(), 1);
+        assert_eq!(
+            config.static_routes[0].root,
+            PathBuf::from("/app/server/v4dist")
+        );
+        assert_eq!(config.static_routes[0].prefix, "/dist/frontend-forge/");
+    }
+
+    #[test]
+    fn normalizes_static_prefix_trailing_slash() {
+        assert_eq!(
+            normalize_static_prefix("/dist/frontend-forge/").expect("prefix should normalize"),
+            "/dist/frontend-forge"
+        );
+        assert_eq!(
+            normalize_static_prefix("/").expect("root prefix should be allowed"),
+            "/"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_static_prefix() {
+        assert!(normalize_static_prefix("dist/frontend-forge/").is_err());
+        assert!(normalize_static_prefix("/dist//frontend-forge/").is_err());
+        assert!(normalize_static_prefix("/dist/*").is_err());
+    }
+
+    #[test]
+    fn parses_server_options_config_arg() {
+        let options = parse_server_options_from([
+            "--addr",
+            "127.0.0.1:3901",
+            "--config",
+            "examples/server.toml",
+        ])
+        .expect("server options should parse");
+
+        assert_eq!(options.addr.to_string(), "127.0.0.1:3901");
+        assert_eq!(
+            options.config_path,
+            Some(PathBuf::from("examples/server.toml"))
+        );
     }
 }

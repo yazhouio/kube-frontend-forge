@@ -976,6 +976,8 @@ mod tests {
         assert!(rollup_base_config.content.contains("\"react\""));
         assert!(!rollup_base_config.content.contains("'zustand'"));
         assert!(rollup_base_config.content.contains("replaceNodeEnv()"));
+        assert!(rollup_base_config.content.contains("esbuildTranspile()"));
+        assert!(rollup_base_config.content.contains("transformSync"));
         assert!(rollup_base_config.content.contains("preset: 'smallest'"));
         assert!(rollup_base_config.content.contains("moduleSideEffects"));
         assert!(rollup_base_config.content.contains("process.env.NODE_ENV"));
@@ -999,13 +1001,7 @@ mod tests {
         assert!(
             rollup_dev_config
                 .content
-                .contains("transpileForgeComponentsSource()")
-        );
-        assert!(rollup_dev_config.content.contains("ts.transpileModule"));
-        assert!(
-            rollup_dev_config
-                .content
-                .contains("/node_modules/@frontend-forge/forge-components/src/")
+                .contains("prePlugins: [resolveForgeComponentsSource()]")
         );
 
         let rollup_prod_config = result
@@ -1013,7 +1009,7 @@ mod tests {
             .iter()
             .find(|file| file.path == "rollup.prod.config.mjs")
             .unwrap();
-        assert!(rollup_prod_config.content.contains("terser("));
+        assert!(rollup_prod_config.content.contains("esbuildMinify()"));
         assert!(!rollup_config.content.contains("__MODULE_NAME_JSON__"));
     }
 

@@ -1,13 +1,15 @@
 import commonjs from '@rollup/plugin-commonjs';
 import json from '@rollup/plugin-json';
 import { nodeResolve } from '@rollup/plugin-node-resolve';
-import typescript from '@rollup/plugin-typescript';
+import { transformSync } from 'esbuild';
 import postcss from 'rollup-plugin-postcss';
 
 const externalPackages = __EXTERNAL_PACKAGES__;
 
 const external = (id) => externalPackages.includes(id);
 const hasStyleSideEffects = (id) => /\.(css|less|sass|scss|styl)(\?.*)?$/.test(id);
+const isTypescriptSource = (id) => /\.[cm]?tsx?$/.test(id);
+const loaderFor = (id) => (id.endsWith('x') ? 'tsx' : 'ts');
 
 export function replaceNodeEnv() {
   const production = JSON.stringify('production');
@@ -31,6 +33,43 @@ export function replaceNodeEnv() {
         return null;
       }
       return { code: next, map: null };
+    },
+  };
+}
+
+function esbuildTranspile() {
+  return {
+    name: 'forge-esbuild-transpile',
+    transform(code, id) {
+      if (!isTypescriptSource(id)) {
+        return null;
+      }
+      const result = transformSync(code, {
+        loader: loaderFor(id),
+        target: 'es2022',
+        format: 'esm',
+        jsx: 'transform',
+        sourcemap: false,
+        sourcefile: id,
+      });
+      return { code: result.code, map: null };
+    },
+  };
+}
+
+export function esbuildMinify() {
+  return {
+    name: 'forge-esbuild-minify',
+    renderChunk(code) {
+      const result = transformSync(code, {
+        loader: 'js',
+        target: 'es2022',
+        format: 'esm',
+        minify: true,
+        legalComments: 'none',
+        sourcemap: false,
+      });
+      return { code: result.code, map: null };
     },
   };
 }
@@ -59,13 +98,7 @@ export function createBaseConfig({ prePlugins = [], postPlugins = [] } = {}) {
       }),
       commonjs(),
       json(),
-      typescript({
-        tsconfig: './tsconfig.json',
-        declaration: false,
-        declarationMap: false,
-        sourceMap: false,
-        jsx: 'react',
-      }),
+      esbuildTranspile(),
       postcss({
         extract: 'style.css',
         minimize: true,

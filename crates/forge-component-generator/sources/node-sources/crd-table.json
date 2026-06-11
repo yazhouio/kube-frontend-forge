@@ -1,0 +1,32 @@
+{
+  "id": "CrdTable",
+  "generateCode": {
+    "imports": [
+      "import * as React from \"react\"",
+      "import { CRDTable404Fallback, PageTable } from \"@frontend-forge/forge-components\""
+    ],
+    "jsx": "<PageTable\n  tableKey={%%TABLE_KEY%%}\n  title={t(%%TITLE%%)}\n  authKey={%%AUTH_KEY%%}\n  params={%%PARAMS%%}\n  createInitialValue={%%CREATE_INITIAL_VALUE%%}\n  refetch={%%REFETCH%%}\n  toolbarLeft={%%TOOLBAR_LEFT%%}\n  pageContext={%%PAGE_CONTEXT%%}\n  columns={%%COLUMNS%%}\n  data={%%DATA%%}\n  isLoading={%%IS_LOADING%%}\n  fallbacks={[\n    {\n      ...CRDTable404Fallback,\n      props: {\n        ...(CRDTable404Fallback.props || {}),\n        command:\n          typeof __crdTableFallbackCommand === \"string\"\n            ? __crdTableFallbackCommand\n            : undefined,\n        ...(%%NOT_FOUND_EMPTY_PROPS%% || {}),\n      },\n    },\n  ]}\n  update={%%UPDATE%%}\n  del={%%DEL%%}\n  create={%%CREATE%%}\n/>",
+    "stats": [],
+    "meta": {
+      "inputPaths": {
+        "$jsx": [
+          "TABLE_KEY",
+          "TITLE",
+          "AUTH_KEY",
+          "PARAMS",
+          "REFETCH",
+          "TOOLBAR_LEFT",
+          "PAGE_CONTEXT",
+          "COLUMNS",
+          "DATA",
+          "NOT_FOUND_EMPTY_PROPS",
+          "IS_LOADING",
+          "UPDATE",
+          "DEL",
+          "CREATE",
+          "CREATE_INITIAL_VALUE"
+        ]
+      }
+    }
+  }
+}

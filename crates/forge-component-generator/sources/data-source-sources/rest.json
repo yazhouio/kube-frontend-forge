@@ -1,0 +1,78 @@
+{
+  "id": "rest",
+  "schema": {
+    "templateInputs": {
+      "URL": {
+        "type": "string",
+        "description": "Request URL"
+      },
+      "METHOD": {
+        "type": "string",
+        "description": "Request method"
+      },
+      "HEADERS": {
+        "type": "object",
+        "description": "Request headers"
+      },
+      "DEFAULT_VALUE": {
+        "type": "object",
+        "description": "Default response value"
+      },
+      "AUTO_LOAD": {
+        "type": "boolean",
+        "description": "Auto load on mount"
+      },
+      "HOOK_NAME": {
+        "type": "string",
+        "description": "Hook name"
+      },
+      "FETCHER_NAME": {
+        "type": "string",
+        "description": "Fetcher name"
+      }
+    },
+    "outputs": {
+      "data": { "type": "object" },
+      "error": { "type": "object" },
+      "isLoading": { "type": "boolean" },
+      "mutate": { "type": "object" }
+    }
+  },
+  "generateCode": {
+    "imports": ["import useSWR from \"swr\""],
+    "stats": [
+      {
+        "id": "fetcherDecl",
+        "scope": "moduleDecl",
+        "code": "const %%FETCHER_NAME%% = (url) => fetch(url).then((res) => res.json());",
+        "output": ["FETCHER_NAME"],
+        "depends": []
+      },
+      {
+        "id": "hookDecl",
+        "scope": "moduleDecl",
+        "code": "const %%HOOK_NAME%% = (options = {}) =>\n  useSWR(\n    %%AUTO_LOAD%% ? %%URL%% : null,\n    %%FETCHER_NAME%%,\n    { fallbackData: %%DEFAULT_VALUE%%, ...options }\n  );",
+        "output": ["HOOK_NAME"],
+        "depends": ["fetcherDecl"]
+      }
+    ],
+    "meta": {
+      "inputPaths": {
+        "fetcherDecl": ["FETCHER_NAME"],
+        "hookDecl": [
+          "AUTO_LOAD",
+          "URL",
+          "DEFAULT_VALUE",
+          "HOOK_NAME",
+          "FETCHER_NAME"
+        ]
+      }
+    },
+    "defaults": {
+      "AUTO_LOAD": "true",
+      "DEFAULT_VALUE": "null",
+      "URL": "undefined"
+    },
+    "actionMode": "request"
+  }
+}

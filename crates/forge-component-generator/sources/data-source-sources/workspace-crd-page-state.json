@@ -1,0 +1,75 @@
+{
+  "id": "workspace-crd-page-state",
+  "schema": {
+    "templateInputs": {
+      "PAGE_ID": {
+        "type": "string",
+        "description": "Page id"
+      },
+      "CRD_CONFIG": {
+        "type": "object",
+        "description": "CRD store config"
+      },
+      "SCOPE": {
+        "type": "string",
+        "description": "Scope name"
+      },
+      "HOOK_NAME": {
+        "type": "string",
+        "description": "Hook name"
+      }
+    },
+    "outputs": {
+      "params": { "type": "object" },
+      "refetch": { "type": "object" },
+      "toolbarLeft": { "type": "object" },
+      "pageContext": { "type": "object" },
+      "data": { "type": "object" },
+      "loading": { "type": "boolean" },
+      "update": { "type": "object" },
+      "del": { "type": "object" },
+      "create": { "type": "object" }
+    }
+  },
+  "generateCode": {
+    "imports": [
+      "import { useMemo } from \"react\"",
+      "import { buildSearchObject, getCrdStore, usePageStore, useProjectSelect, useRuntimeContext } from \"@frontend-forge/forge-components\""
+    ],
+    "stats": [
+      {
+        "id": "storeDecl",
+        "scope": "moduleDecl",
+        "code": "const useStore = getCrdStore(%%CRD_CONFIG%%);",
+        "output": ["useStore"],
+        "depends": []
+      },
+      {
+        "id": "fallbackCommandDecl",
+        "scope": "moduleDecl",
+        "code": "const __crdTableFallbackCommand = \"kubectl label crd \" + (%%CRD_CONFIG%%).plural + \".\" + (%%CRD_CONFIG%%).group + \" kubesphere.io/resource-served=true\";",
+        "output": ["__crdTableFallbackCommand"],
+        "depends": ["storeDecl"]
+      },
+      {
+        "id": "hookDecl",
+        "scope": "moduleDecl",
+        "code": "const %%HOOK_NAME%% = (columns, storeOptions = undefined) => {\n  const pageId = %%PAGE_ID%%;\n  const page = usePageStore({ pageId, columns });\n  const runtime = useRuntimeContext();\n  const params = runtime?.route?.params || {};\n  const pageContext = {...runtime?.capabilities, useTableActions: runtime?.capabilities?.useWorkspaceTableActions};\n  const storeQuery = useMemo(() => buildSearchObject(page, true), [page]);\n\n  const useWorkspaceProjectSelectHook = useMemo(\n    () =>\n      pageContext?.useWorkspaceProjectSelect ||\n      (() => ({ render: null, params: {} })),\n    [pageContext],\n  );\n  const {\n    render: renderProjectSelect,\n    params: { cluster, namespace },\n  } = useWorkspaceProjectSelectHook({\n    workspace: params.workspace,\n    showAll: false,\n  });\n\n  const resolvedOptions =\n    storeOptions && Object.prototype.hasOwnProperty.call(storeOptions, \"enabled\")\n      ? storeOptions\n      : {\n          ...(storeOptions || {}),\n          enabled: Boolean(namespace),\n        };\n\n  const store = useStore(\n    {\n      params: { ...params, namespace, cluster },\n      query: storeQuery,\n    },\n    resolvedOptions,\n  );\n\n  return {\n    params: { ...params, namespace, cluster },\n    toolbarLeft: renderProjectSelect,\n    pageContext,\n    data: store.data,\n    loading: Boolean(store.isLoading || store.isValidating),\n    refetch: store.mutate,\n    update: store.update,\n    del: store.batchDelete,\n    create: store.create,\n  };\n};",
+        "output": ["HOOK_NAME"],
+        "depends": ["storeDecl"]
+      }
+    ],
+    "meta": {
+      "inputPaths": {
+        "storeDecl": ["CRD_CONFIG"],
+        "fallbackCommandDecl": ["CRD_CONFIG"],
+        "hookDecl": ["HOOK_NAME", "PAGE_ID", "SCOPE"]
+      }
+    },
+    "defaults": {
+      "CRD_CONFIG": "{}",
+      "PAGE_ID": { "type": "dataSourceIdJson" },
+      "SCOPE": "\"cluster\""
+    }
+  }
+}

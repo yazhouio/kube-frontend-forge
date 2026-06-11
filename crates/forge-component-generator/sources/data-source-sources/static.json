@@ -1,0 +1,42 @@
+{
+  "id": "static",
+  "schema": {
+    "templateInputs": {
+      "DATA": {
+        "type": "object",
+        "description": "Static payload"
+      },
+      "HOOK_NAME": {
+        "type": "string",
+        "description": "Hook name"
+      }
+    },
+    "outputs": {
+      "data": { "type": "object" },
+      "error": { "type": "object" },
+      "isLoading": { "type": "boolean" },
+      "mutate": { "type": "object" }
+    }
+  },
+  "generateCode": {
+    "imports": ["import { useState } from \"react\""],
+    "stats": [
+      {
+        "id": "hookDecl",
+        "scope": "moduleDecl",
+        "code": "const %%HOOK_NAME%% = () => {\n  const [data, setData] = useState(%%DATA%%);\n  return { data, error: null, isLoading: false, mutate: setData };\n};",
+        "output": ["HOOK_NAME"],
+        "depends": []
+      }
+    ],
+    "meta": {
+      "inputPaths": {
+        "hookDecl": ["DATA", "HOOK_NAME"]
+      }
+    },
+    "defaults": {
+      "DATA": "null"
+    },
+    "actionMode": "set"
+  }
+}

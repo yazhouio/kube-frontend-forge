@@ -1,612 +1,418 @@
+use std::collections::BTreeMap;
+
+use indexmap::IndexMap;
+use serde::Deserialize;
+
 use crate::registry::{
     DataSourceSource, DataSourceSourceGenerateCode, DataSourceSourceSchema, NodeSource,
     NodeSourceGenerateCode, NodeSourceMeta, NodeSourceSchema, Registry, StatSource, StatementScope,
     TemplateDefault, TemplateInput, TemplateOutput,
 };
-use crate::value::DataSourceActionMode;
+use crate::value::{DataSourceActionMode, DataSourceCallMode};
+
+const NODE_SOURCE_JSON: &[(&str, &str)] = &[
+    (
+        "layout.json",
+        include_str!("../sources/node-sources/layout.json"),
+    ),
+    (
+        "text.json",
+        include_str!("../sources/node-sources/text.json"),
+    ),
+    (
+        "iframe.json",
+        include_str!("../sources/node-sources/iframe.json"),
+    ),
+    (
+        "crd-table.json",
+        include_str!("../sources/node-sources/crd-table.json"),
+    ),
+];
+
+const DATA_SOURCE_SOURCE_JSON: &[(&str, &str)] = &[
+    (
+        "static.json",
+        include_str!("../sources/data-source-sources/static.json"),
+    ),
+    (
+        "rest.json",
+        include_str!("../sources/data-source-sources/rest.json"),
+    ),
+    (
+        "crd-columns.json",
+        include_str!("../sources/data-source-sources/crd-columns.json"),
+    ),
+    (
+        "crd-page-state.json",
+        include_str!("../sources/data-source-sources/crd-page-state.json"),
+    ),
+    (
+        "workspace-crd-page-state.json",
+        include_str!("../sources/data-source-sources/workspace-crd-page-state.json"),
+    ),
+];
 
 pub fn default_registry() -> Registry {
     let mut registry = Registry::default();
-    registry.register_node(layout_node());
-    registry.register_node(text_node());
-    registry.register_node(iframe_node());
-    registry.register_node(crd_table_node());
-    registry.register_data_source(static_data_source());
-    registry.register_data_source(rest_data_source());
-    registry.register_data_source(crd_columns_data_source());
-    registry.register_data_source(crd_page_state_data_source());
-    registry.register_data_source(workspace_crd_page_state_data_source());
+    for (label, raw) in NODE_SOURCE_JSON {
+        registry.register_node(parse_node_source(label, raw));
+    }
+    for (label, raw) in DATA_SOURCE_SOURCE_JSON {
+        registry.register_data_source(parse_data_source_source(label, raw));
+    }
     registry
 }
 
-fn layout_node() -> NodeSource {
-    NodeSource::new(
-        "Layout",
-        NodeSourceGenerateCode {
-            imports: vec![r#"import * as React from "react""#],
-            jsx: Some(
-                r#"<div className='layout'><__ENGINE_CHILDREN__ />
-    <div>{%%TEXT%%}</div></div>"#,
-            ),
-            stats: vec![],
-            meta: Some(meta_input_paths(vec![("$jsx", vec!["TEXT"])])),
-        },
-    )
-    .with_schema(schema(vec![(
-        "TEXT",
-        TemplateInput {
-            ty: "string",
-            description: "Layout text",
-        },
-    )]))
+fn parse_node_source(label: &str, raw: &str) -> NodeSource {
+    let source = serde_json::from_str::<RawNodeSource>(raw)
+        .unwrap_or_else(|source| panic!("failed to parse bundled NodeSource {label}: {source}"));
+    source.into_node_source()
 }
 
-fn text_node() -> NodeSource {
-    NodeSource::new(
-        "Text",
-        NodeSourceGenerateCode {
-            imports: vec![
-                r#"import * as React from "react""#,
-                r#"import { useState } from "react""#,
-            ],
-            jsx: Some(r#"<div>{%%TEXT%%}</div>"#),
-            stats: vec![StatSource {
-                id: "textState",
-                scope: StatementScope::FunctionBody,
-                code: "const [text, setText] = useState(%%DEFAULT_VALUE%%);",
-                output: vec!["text", "setText"],
-                depends: vec![],
-            }],
-            meta: Some(meta_input_paths(vec![
-                ("$jsx", vec!["TEXT"]),
-                ("textState", vec!["DEFAULT_VALUE"]),
-            ])),
-        },
-    )
-    .with_schema(schema(vec![
-        (
-            "TEXT",
-            TemplateInput {
-                ty: "string",
-                description: "Text content",
-            },
-        ),
-        (
-            "DEFAULT_VALUE",
-            TemplateInput {
-                ty: "number",
-                description: "Default value",
-            },
-        ),
-    ]))
+fn parse_data_source_source(label: &str, raw: &str) -> DataSourceSource {
+    let source = serde_json::from_str::<RawDataSourceSource>(raw).unwrap_or_else(|source| {
+        panic!("failed to parse bundled DataSourceSource {label}: {source}")
+    });
+    source.into_data_source_source()
 }
 
-fn iframe_node() -> NodeSource {
-    NodeSource::new(
-        "Iframe",
-        NodeSourceGenerateCode {
-            imports: vec![
-                r#"import * as React from "react""#,
-                r#"import { BaseIframe } from "@frontend-forge/forge-components""#,
-            ],
-            jsx: Some(r#"<BaseIframe src={%%FRAME_URL%%} />"#),
-            stats: vec![],
-            meta: Some(meta_input_paths(vec![("$jsx", vec!["FRAME_URL"])])),
-        },
-    )
-    .with_schema(schema(vec![(
-        "FRAME_URL",
-        TemplateInput {
-            ty: "string",
-            description: "Iframe src url",
-        },
-    )]))
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawNodeSource {
+    id: String,
+    #[serde(default)]
+    schema: RawNodeSourceSchema,
+    generate_code: RawNodeSourceGenerateCode,
 }
 
-fn crd_table_node() -> NodeSource {
-    NodeSource::new(
-        "CrdTable",
-        NodeSourceGenerateCode {
-            imports: vec![
-                r#"import * as React from "react""#,
-                r#"import { CRDTable404Fallback, PageTable } from "@frontend-forge/forge-components""#,
-            ],
-            jsx: Some(
-                r#"<PageTable
-  tableKey={%%TABLE_KEY%%}
-  title={t(%%TITLE%%)}
-  authKey={%%AUTH_KEY%%}
-  params={%%PARAMS%%}
-  createInitialValue={%%CREATE_INITIAL_VALUE%%}
-  refetch={%%REFETCH%%}
-  toolbarLeft={%%TOOLBAR_LEFT%%}
-  pageContext={%%PAGE_CONTEXT%%}
-  columns={%%COLUMNS%%}
-  data={%%DATA%%}
-  isLoading={%%IS_LOADING%%}
-  fallbacks={[
-    {
-      ...CRDTable404Fallback,
-      props: {
-        ...(CRDTable404Fallback.props || {}),
-        command:
-          typeof __crdTableFallbackCommand === "string"
-            ? __crdTableFallbackCommand
-            : undefined,
-        ...(%%NOT_FOUND_EMPTY_PROPS%% || {}),
-      },
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawNodeSourceSchema {
+    #[serde(default)]
+    template_inputs: BTreeMap<String, RawTemplateInput>,
+    #[serde(default)]
+    runtime_props: BTreeMap<String, RawTemplateInput>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawNodeSourceGenerateCode {
+    #[serde(default)]
+    imports: Vec<String>,
+    #[serde(default)]
+    stats: Vec<RawStatSource>,
+    #[serde(default)]
+    jsx: Option<String>,
+    #[serde(default)]
+    meta: Option<RawNodeSourceMeta>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawDataSourceSource {
+    id: String,
+    #[serde(default)]
+    schema: RawDataSourceSourceSchema,
+    generate_code: RawDataSourceSourceGenerateCode,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawDataSourceSourceSchema {
+    #[serde(default)]
+    template_inputs: BTreeMap<String, RawTemplateInput>,
+    #[serde(default)]
+    outputs: BTreeMap<String, RawTemplateOutput>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawDataSourceSourceGenerateCode {
+    #[serde(default)]
+    imports: Vec<String>,
+    #[serde(default)]
+    stats: Vec<RawStatSource>,
+    #[serde(default)]
+    meta: Option<RawNodeSourceMeta>,
+    #[serde(default)]
+    call_mode: Option<RawDataSourceCallMode>,
+    #[serde(default)]
+    action_mode: Option<RawDataSourceActionMode>,
+    #[serde(default)]
+    defaults: BTreeMap<String, RawTemplateDefault>,
+}
+
+#[derive(Deserialize)]
+struct RawTemplateInput {
+    #[serde(rename = "type")]
+    ty: String,
+    #[serde(default)]
+    description: String,
+}
+
+#[derive(Deserialize)]
+struct RawTemplateOutput {
+    #[serde(rename = "type")]
+    ty: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawStatSource {
+    id: String,
+    scope: RawStatementScope,
+    code: String,
+    #[serde(default)]
+    output: Vec<String>,
+    #[serde(default)]
+    depends: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum RawStatementScope {
+    ModuleImport,
+    ModuleDecl,
+    ModuleInit,
+    FunctionDecl,
+    FunctionBody,
+    Block,
+    ControlFlow,
+    Jsx,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawNodeSourceMeta {
+    #[serde(default)]
+    input_paths: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    runtime_deps: Vec<String>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum RawDataSourceCallMode {
+    Hook,
+    Value,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum RawDataSourceActionMode {
+    Set,
+    Request,
+    Mutate,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawTemplateDefault {
+    Expr(String),
+    Object {
+        #[serde(rename = "type")]
+        ty: String,
     },
-  ]}
-  update={%%UPDATE%%}
-  del={%%DEL%%}
-  create={%%CREATE%%}
-/>"#,
-            ),
-            stats: vec![],
-            meta: Some(meta_input_paths(vec![(
-                "$jsx",
-                vec![
-                    "TABLE_KEY",
-                    "TITLE",
-                    "AUTH_KEY",
-                    "PARAMS",
-                    "REFETCH",
-                    "TOOLBAR_LEFT",
-                    "PAGE_CONTEXT",
-                    "COLUMNS",
-                    "DATA",
-                    "NOT_FOUND_EMPTY_PROPS",
-                    "IS_LOADING",
-                    "UPDATE",
-                    "DEL",
-                    "CREATE",
-                    "CREATE_INITIAL_VALUE",
-                ],
-            )])),
-        },
-    )
 }
 
-fn schema(inputs: Vec<(&'static str, TemplateInput)>) -> NodeSourceSchema {
-    NodeSourceSchema {
-        template_inputs: inputs.into_iter().collect(),
-        runtime_props: Default::default(),
+impl RawNodeSource {
+    fn into_node_source(self) -> NodeSource {
+        NodeSource::new(
+            leak(self.id),
+            NodeSourceGenerateCode {
+                imports: self.generate_code.imports.into_iter().map(leak).collect(),
+                stats: self
+                    .generate_code
+                    .stats
+                    .into_iter()
+                    .map(RawStatSource::into_stat_source)
+                    .collect(),
+                jsx: self.generate_code.jsx.map(leak),
+                meta: self.generate_code.meta.map(RawNodeSourceMeta::into_meta),
+            },
+        )
+        .with_schema(NodeSourceSchema {
+            template_inputs: template_inputs(self.schema.template_inputs),
+            runtime_props: template_inputs(self.schema.runtime_props),
+        })
     }
 }
 
-fn meta_input_paths(items: Vec<(&'static str, Vec<&'static str>)>) -> NodeSourceMeta {
-    NodeSourceMeta {
-        input_paths: items.into_iter().collect(),
-        runtime_deps: Vec::new(),
-    }
-}
-
-fn data_source_schema(
-    inputs: Vec<(&'static str, TemplateInput)>,
-    outputs: Vec<(&'static str, TemplateOutput)>,
-) -> DataSourceSourceSchema {
-    DataSourceSourceSchema {
-        template_inputs: inputs.into_iter().collect(),
-        outputs: outputs.into_iter().collect(),
-    }
-}
-
-fn standard_data_source_outputs() -> Vec<(&'static str, TemplateOutput)> {
-    vec![
-        ("data", TemplateOutput { ty: "object" }),
-        ("error", TemplateOutput { ty: "object" }),
-        ("isLoading", TemplateOutput { ty: "boolean" }),
-        ("mutate", TemplateOutput { ty: "object" }),
-    ]
-}
-
-fn static_data_source() -> DataSourceSource {
-    DataSourceSource::new(
-        "static",
-        DataSourceSourceGenerateCode {
-            imports: vec![r#"import { useState } from "react""#],
-            stats: vec![StatSource {
-                id: "hookDecl",
-                scope: StatementScope::ModuleDecl,
-                code: r#"const %%HOOK_NAME%% = () => {
-  const [data, setData] = useState(%%DATA%%);
-  return { data, error: null, isLoading: false, mutate: setData };
-};"#,
-                output: vec!["HOOK_NAME"],
-                depends: vec![],
-            }],
-            meta: Some(meta_input_paths(vec![(
-                "hookDecl",
-                vec!["DATA", "HOOK_NAME"],
-            )])),
-            defaults: [("DATA", TemplateDefault::Expr("null"))]
+impl RawDataSourceSource {
+    fn into_data_source_source(self) -> DataSourceSource {
+        DataSourceSource::new(
+            leak(self.id),
+            DataSourceSourceGenerateCode {
+                imports: self.generate_code.imports.into_iter().map(leak).collect(),
+                stats: self
+                    .generate_code
+                    .stats
+                    .into_iter()
+                    .map(RawStatSource::into_stat_source)
+                    .collect(),
+                meta: self.generate_code.meta.map(RawNodeSourceMeta::into_meta),
+                call_mode: self
+                    .generate_code
+                    .call_mode
+                    .map(Into::into)
+                    .unwrap_or_default(),
+                action_mode: self
+                    .generate_code
+                    .action_mode
+                    .map(Into::into)
+                    .unwrap_or_default(),
+                defaults: self
+                    .generate_code
+                    .defaults
+                    .into_iter()
+                    .map(|(key, value)| (leak(key), value.into_template_default()))
+                    .collect(),
+            },
+        )
+        .with_schema(DataSourceSourceSchema {
+            template_inputs: template_inputs(self.schema.template_inputs),
+            outputs: self
+                .schema
+                .outputs
                 .into_iter()
+                .map(|(key, output)| (leak(key), output.into_template_output()))
                 .collect(),
-            action_mode: DataSourceActionMode::Set,
-            ..DataSourceSourceGenerateCode::default()
-        },
-    )
-    .with_schema(data_source_schema(
-        vec![
-            (
-                "DATA",
-                TemplateInput {
-                    ty: "object",
-                    description: "Static payload",
-                },
-            ),
-            (
-                "HOOK_NAME",
-                TemplateInput {
-                    ty: "string",
-                    description: "Hook name",
-                },
-            ),
-        ],
-        standard_data_source_outputs(),
-    ))
+        })
+    }
 }
 
-fn rest_data_source() -> DataSourceSource {
-    DataSourceSource::new(
-        "rest",
-        DataSourceSourceGenerateCode {
-            imports: vec![r#"import useSWR from "swr""#],
-            stats: vec![
-                StatSource {
-                    id: "fetcherDecl",
-                    scope: StatementScope::ModuleDecl,
-                    code: "const %%FETCHER_NAME%% = (url) => fetch(url).then((res) => res.json());",
-                    output: vec!["FETCHER_NAME"],
-                    depends: vec![],
-                },
-                StatSource {
-                    id: "hookDecl",
-                    scope: StatementScope::ModuleDecl,
-                    code: r#"const %%HOOK_NAME%% = (options = {}) =>
-  useSWR(
-    %%AUTO_LOAD%% ? %%URL%% : null,
-    %%FETCHER_NAME%%,
-    { fallbackData: %%DEFAULT_VALUE%%, ...options }
-  );"#,
-                    output: vec!["HOOK_NAME"],
-                    depends: vec!["fetcherDecl"],
-                },
-            ],
-            meta: Some(meta_input_paths(vec![
-                ("fetcherDecl", vec!["FETCHER_NAME"]),
-                (
-                    "hookDecl",
-                    vec![
-                        "AUTO_LOAD",
-                        "URL",
-                        "DEFAULT_VALUE",
-                        "HOOK_NAME",
-                        "FETCHER_NAME",
-                    ],
-                ),
-            ])),
-            defaults: [
-                ("AUTO_LOAD", TemplateDefault::Expr("true")),
-                ("DEFAULT_VALUE", TemplateDefault::Expr("null")),
-                ("URL", TemplateDefault::Expr("undefined")),
-            ]
-            .into_iter()
-            .collect(),
-            action_mode: DataSourceActionMode::Request,
-            ..DataSourceSourceGenerateCode::default()
-        },
-    )
-    .with_schema(data_source_schema(
-        vec![
-            (
-                "URL",
-                TemplateInput {
-                    ty: "string",
-                    description: "Request URL",
-                },
-            ),
-            (
-                "METHOD",
-                TemplateInput {
-                    ty: "string",
-                    description: "Request method",
-                },
-            ),
-            (
-                "HEADERS",
-                TemplateInput {
-                    ty: "object",
-                    description: "Request headers",
-                },
-            ),
-            (
-                "DEFAULT_VALUE",
-                TemplateInput {
-                    ty: "object",
-                    description: "Default response value",
-                },
-            ),
-            (
-                "AUTO_LOAD",
-                TemplateInput {
-                    ty: "boolean",
-                    description: "Auto load on mount",
-                },
-            ),
-            (
-                "HOOK_NAME",
-                TemplateInput {
-                    ty: "string",
-                    description: "Hook name",
-                },
-            ),
-            (
-                "FETCHER_NAME",
-                TemplateInput {
-                    ty: "string",
-                    description: "Fetcher name",
-                },
-            ),
-        ],
-        standard_data_source_outputs(),
-    ))
+impl RawTemplateInput {
+    fn into_template_input(self) -> TemplateInput {
+        TemplateInput {
+            ty: leak(self.ty),
+            description: leak(self.description),
+        }
+    }
 }
 
-fn crd_columns_data_source() -> DataSourceSource {
-    DataSourceSource::new(
-        "crd-columns",
-        DataSourceSourceGenerateCode {
-            imports: vec![
-                r#"import { useMemo } from "react""#,
-                r#"import { TableTd, useRuntimeContext } from "@frontend-forge/forge-components""#,
-            ],
-            stats: vec![
-                StatSource {
-                    id: "columnsConfigDecl",
-                    scope: StatementScope::ModuleDecl,
-                    code: "const columnsConfig = %%COLUMNS_CONFIG%%;",
-                    output: vec!["columnsConfig"],
-                    depends: vec![],
-                },
-                StatSource {
-                    id: "hookDecl",
-                    scope: StatementScope::ModuleDecl,
-                    code: r#"const %%HOOK_NAME%% = () => {
-  const runtime = useRuntimeContext();
-  const cap = runtime?.capabilities || {};
-  const t = cap.t ?? ((d) => d);
-  const columns = useMemo(
-    () =>
-      columnsConfig.map((column) => {
-        const { key, title, render, path, valueType, displayType, payload, emptyText, ...rest } = column;
-        const renderConfig = render ?? { path, valueType, displayType, payload, emptyText };
-        return {
-          accessorKey: key,
-          header: t(title),
-          cell: (info) => <TableTd meta={renderConfig} original={info.row.original} />,
-          ...rest,
-        };
-      }),
-    [columnsConfig],
-  );
-  return { columns };
-};"#,
-                    output: vec!["HOOK_NAME"],
-                    depends: vec![],
-                },
-            ],
-            meta: Some(meta_input_paths(vec![
-                ("columnsConfigDecl", vec!["COLUMNS_CONFIG"]),
-                ("hookDecl", vec!["HOOK_NAME"]),
-            ])),
-            ..DataSourceSourceGenerateCode::default()
-        },
-    )
-    .with_schema(data_source_schema(
-        vec![
-            (
-                "COLUMNS_CONFIG",
-                TemplateInput {
-                    ty: "array",
-                    description: "Columns config",
-                },
-            ),
-            (
-                "HOOK_NAME",
-                TemplateInput {
-                    ty: "string",
-                    description: "Hook name",
-                },
-            ),
-        ],
-        vec![("columns", TemplateOutput { ty: "array" })],
-    ))
+impl RawTemplateOutput {
+    fn into_template_output(self) -> TemplateOutput {
+        TemplateOutput { ty: leak(self.ty) }
+    }
 }
 
-fn crd_page_state_data_source() -> DataSourceSource {
-    crd_page_state_data_source_with_hook(
-        "crd-page-state",
-        r#"const %%HOOK_NAME%% = (columns, storeOptions = undefined) => {
-  const pageId = %%PAGE_ID%%;
-  const page = usePageStore({ pageId, columns });
-  const runtime = useRuntimeContext();
-  const params = runtime?.route?.params || {};
-  const pageContext = runtime?.capabilities || {};
-  const storeQuery = useMemo(() => buildSearchObject(page, true), [page]);
-  const scope = %%SCOPE%%;
-  const { render: renderProjectSelect, params: { namespace: selectNamespace } } = useProjectSelect(
-    { cluster: params.cluster },
-    { enabled: scope === "namespace" },
-  );
-  const namespace = scope === "namespace" ? selectNamespace : undefined;
-  const toolbarLeft = () => scope === "namespace" ? renderProjectSelect() : null;
-  const store = useStore({ params: { ...params, namespace }, query: storeQuery }, storeOptions ?? {});
-  return {
-    params,
-    toolbarLeft,
-    pageContext,
-    data: store.data,
-    loading: Boolean(store.isLoading || store.isValidating),
-    refetch: store.mutate,
-    update: store.update,
-    del: store.batchDelete,
-    create: store.create,
-  };
-};"#,
-    )
+impl RawStatSource {
+    fn into_stat_source(self) -> StatSource {
+        StatSource {
+            id: leak(self.id),
+            scope: self.scope.into(),
+            code: leak(self.code),
+            output: self.output.into_iter().map(leak).collect(),
+            depends: self.depends.into_iter().map(leak).collect(),
+        }
+    }
 }
 
-fn workspace_crd_page_state_data_source() -> DataSourceSource {
-    crd_page_state_data_source_with_hook(
-        "workspace-crd-page-state",
-        r#"const %%HOOK_NAME%% = (columns, storeOptions = undefined) => {
-  const pageId = %%PAGE_ID%%;
-  const page = usePageStore({ pageId, columns });
-  const runtime = useRuntimeContext();
-  const params = runtime?.route?.params || {};
-  const pageContext = {...runtime?.capabilities, useTableActions: runtime?.capabilities?.useWorkspaceTableActions};
-  const storeQuery = useMemo(() => buildSearchObject(page, true), [page]);
-
-  const useWorkspaceProjectSelectHook = useMemo(
-    () =>
-      pageContext?.useWorkspaceProjectSelect ||
-      (() => ({ render: null, params: {} })),
-    [pageContext],
-  );
-  const {
-    render: renderProjectSelect,
-    params: { cluster, namespace },
-  } = useWorkspaceProjectSelectHook({
-    workspace: params.workspace,
-    showAll: false,
-  });
-
-  const resolvedOptions =
-    storeOptions && Object.prototype.hasOwnProperty.call(storeOptions, "enabled")
-      ? storeOptions
-      : {
-          ...(storeOptions || {}),
-          enabled: Boolean(namespace),
-        };
-
-  const store = useStore(
-    {
-      params: { ...params, namespace, cluster },
-      query: storeQuery,
-    },
-    resolvedOptions,
-  );
-
-  return {
-    params: { ...params, namespace, cluster },
-    toolbarLeft: renderProjectSelect,
-    pageContext,
-    data: store.data,
-    loading: Boolean(store.isLoading || store.isValidating),
-    refetch: store.mutate,
-    update: store.update,
-    del: store.batchDelete,
-    create: store.create,
-  };
-};"#,
-    )
+impl From<RawStatementScope> for StatementScope {
+    fn from(scope: RawStatementScope) -> Self {
+        match scope {
+            RawStatementScope::ModuleImport => Self::ModuleImport,
+            RawStatementScope::ModuleDecl => Self::ModuleDecl,
+            RawStatementScope::ModuleInit => Self::ModuleInit,
+            RawStatementScope::FunctionDecl => Self::FunctionDecl,
+            RawStatementScope::FunctionBody => Self::FunctionBody,
+            RawStatementScope::Block => Self::Block,
+            RawStatementScope::ControlFlow => Self::ControlFlow,
+            RawStatementScope::Jsx => Self::Jsx,
+        }
+    }
 }
 
-fn crd_page_state_data_source_with_hook(
-    id: &'static str,
-    hook_code: &'static str,
-) -> DataSourceSource {
-    DataSourceSource::new(
-        id,
-        DataSourceSourceGenerateCode {
-            imports: vec![
-                r#"import { useMemo } from "react""#,
-                r#"import { buildSearchObject, getCrdStore, usePageStore, useProjectSelect, useRuntimeContext } from "@frontend-forge/forge-components""#,
-            ],
-            stats: vec![
-                StatSource {
-                    id: "storeDecl",
-                    scope: StatementScope::ModuleDecl,
-                    code: "const useStore = getCrdStore(%%CRD_CONFIG%%);",
-                    output: vec!["useStore"],
-                    depends: vec![],
-                },
-                StatSource {
-                    id: "fallbackCommandDecl",
-                    scope: StatementScope::ModuleDecl,
-                    code: r#"const __crdTableFallbackCommand = "kubectl label crd " + (%%CRD_CONFIG%%).plural + "." + (%%CRD_CONFIG%%).group + " kubesphere.io/resource-served=true";"#,
-                    output: vec!["__crdTableFallbackCommand"],
-                    depends: vec!["storeDecl"],
-                },
-                StatSource {
-                    id: "hookDecl",
-                    scope: StatementScope::ModuleDecl,
-                    code: hook_code,
-                    output: vec!["HOOK_NAME"],
-                    depends: vec!["storeDecl"],
-                },
-            ],
-            meta: Some(meta_input_paths(vec![
-                ("storeDecl", vec!["CRD_CONFIG"]),
-                ("fallbackCommandDecl", vec!["CRD_CONFIG"]),
-                ("hookDecl", vec!["HOOK_NAME", "PAGE_ID", "SCOPE"]),
-            ])),
-            defaults: [
-                ("CRD_CONFIG", TemplateDefault::Expr("{}")),
-                ("PAGE_ID", TemplateDefault::DataSourceIdJson),
-                ("SCOPE", TemplateDefault::Expr(r#""cluster""#)),
-            ]
-            .into_iter()
-            .collect(),
-            ..DataSourceSourceGenerateCode::default()
-        },
-    )
-    .with_schema(data_source_schema(
-        vec![
-            (
-                "PAGE_ID",
-                TemplateInput {
-                    ty: "string",
-                    description: "Page id",
-                },
-            ),
-            (
-                "CRD_CONFIG",
-                TemplateInput {
-                    ty: "object",
-                    description: "CRD store config",
-                },
-            ),
-            (
-                "SCOPE",
-                TemplateInput {
-                    ty: "string",
-                    description: "Scope name",
-                },
-            ),
-            (
-                "HOOK_NAME",
-                TemplateInput {
-                    ty: "string",
-                    description: "Hook name",
-                },
-            ),
-        ],
-        crd_page_state_outputs(),
-    ))
+impl RawNodeSourceMeta {
+    fn into_meta(self) -> NodeSourceMeta {
+        NodeSourceMeta {
+            input_paths: self
+                .input_paths
+                .into_iter()
+                .map(|(key, paths)| (leak(key), paths.into_iter().map(leak).collect()))
+                .collect(),
+            runtime_deps: self.runtime_deps.into_iter().map(leak).collect(),
+        }
+    }
 }
 
-fn crd_page_state_outputs() -> Vec<(&'static str, TemplateOutput)> {
-    vec![
-        ("params", TemplateOutput { ty: "object" }),
-        ("refetch", TemplateOutput { ty: "object" }),
-        ("toolbarLeft", TemplateOutput { ty: "object" }),
-        ("pageContext", TemplateOutput { ty: "object" }),
-        ("data", TemplateOutput { ty: "object" }),
-        ("loading", TemplateOutput { ty: "boolean" }),
-        ("update", TemplateOutput { ty: "object" }),
-        ("del", TemplateOutput { ty: "object" }),
-        ("create", TemplateOutput { ty: "object" }),
-    ]
+impl From<RawDataSourceCallMode> for DataSourceCallMode {
+    fn from(mode: RawDataSourceCallMode) -> Self {
+        match mode {
+            RawDataSourceCallMode::Hook => Self::Hook,
+            RawDataSourceCallMode::Value => Self::Value,
+        }
+    }
+}
+
+impl From<RawDataSourceActionMode> for DataSourceActionMode {
+    fn from(mode: RawDataSourceActionMode) -> Self {
+        match mode {
+            RawDataSourceActionMode::Set => Self::Set,
+            RawDataSourceActionMode::Request => Self::Request,
+            RawDataSourceActionMode::Mutate => Self::Mutate,
+        }
+    }
+}
+
+impl RawTemplateDefault {
+    fn into_template_default(self) -> TemplateDefault {
+        match self {
+            RawTemplateDefault::Expr(code) => TemplateDefault::Expr(leak(code)),
+            RawTemplateDefault::Object { ty } if ty == "dataSourceIdJson" => {
+                TemplateDefault::DataSourceIdJson
+            }
+            RawTemplateDefault::Object { ty } => {
+                panic!("unsupported template default type `{ty}`")
+            }
+        }
+    }
+}
+
+fn template_inputs(
+    inputs: BTreeMap<String, RawTemplateInput>,
+) -> IndexMap<&'static str, TemplateInput> {
+    inputs
+        .into_iter()
+        .map(|(key, input)| (leak(key), input.into_template_input()))
+        .collect()
+}
+
+fn leak(value: String) -> &'static str {
+    Box::leak(value.into_boxed_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use jsonschema::validator_for;
+    use serde_json::Value;
+
+    use super::{DATA_SOURCE_SOURCE_JSON, NODE_SOURCE_JSON};
+    use crate::schema::{data_source_source_schema, node_source_schema};
+
+    #[test]
+    fn bundled_node_sources_match_node_source_schema() {
+        let schema = node_source_schema();
+        let validator = validator_for(&schema).unwrap();
+
+        for (label, raw) in NODE_SOURCE_JSON {
+            let value = serde_json::from_str::<Value>(raw).unwrap();
+            validator
+                .validate(&value)
+                .unwrap_or_else(|err| panic!("{label} does not match node-source schema: {err}"));
+        }
+    }
+
+    #[test]
+    fn bundled_data_source_sources_match_data_source_source_schema() {
+        let schema = data_source_source_schema();
+        let validator = validator_for(&schema).unwrap();
+
+        for (label, raw) in DATA_SOURCE_SOURCE_JSON {
+            let value = serde_json::from_str::<Value>(raw).unwrap();
+            validator.validate(&value).unwrap_or_else(|err| {
+                panic!("{label} does not match data-source-source schema: {err}")
+            });
+        }
+    }
 }

@@ -12,6 +12,14 @@ use crate::value::{DataSourceActionMode, DataSourceCallMode};
 
 const NODE_SOURCE_JSON: &[(&str, &str)] = &[
     (
+        "layout.json",
+        include_str!("../sources/node-sources/layout.json"),
+    ),
+    (
+        "text.json",
+        include_str!("../sources/node-sources/text.json"),
+    ),
+    (
         "iframe.json",
         include_str!("../sources/node-sources/iframe.json"),
     ),

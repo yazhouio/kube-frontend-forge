@@ -10,6 +10,9 @@ on:
     types:
       - published
 
+env:
+  DOCKER_PLATFORMS: linux/amd64,linux/arm64
+
 jobs:
   build-pr-image:
     name: Build PR image (${{ matrix.image }}:${{ matrix.target }})
@@ -36,6 +39,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -45,6 +51,7 @@ jobs:
           context: .
           file: crates/forge-job/Dockerfile
           target: ${{ matrix.target }}
+          platforms: ${{ env.DOCKER_PLATFORMS }}
           push: false
           tags: ${{ matrix.image }}:pr-${{ github.event.pull_request.number }}-${{ matrix.variant }}
           secrets: |
@@ -106,7 +113,7 @@ jobs:
           context: .
           file: crates/forge-job/Dockerfile
           target: ${{ matrix.target }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ env.DOCKER_PLATFORMS }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -165,7 +172,7 @@ jobs:
           context: .
           file: crates/forge-job/Dockerfile
           target: ${{ matrix.target }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ env.DOCKER_PLATFORMS }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

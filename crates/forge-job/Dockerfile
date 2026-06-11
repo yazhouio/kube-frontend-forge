@@ -55,6 +55,7 @@ RUN --mount=type=cache,id=forge-pnpm-store,target=/pnpm/store \
 FROM node:22-bookworm-slim AS dev
 
 ENV NODE_ENV="production"
+ENV FORGE_DEV_MODE="true"
 ENV FORGE_NODE_MODULES_DIR="/app/node_modules"
 ENV FORGE_ROLLUP_BIN="/app/node_modules/.bin/rollup"
 ENV FORGE_COMPONENTS_PACKAGE_JSON="/app/node_modules/@frontend-forge/forge-components/package.json"

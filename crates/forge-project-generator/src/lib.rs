@@ -69,6 +69,9 @@ where
     let excluded = BTreeSet::from([
         "package.json.tpl",
         "rollup.config.mjs.tpl",
+        "rollup.base.config.mjs.tpl",
+        "rollup.dev.config.mjs.tpl",
+        "rollup.prod.config.mjs.tpl",
         "src/extensionConfig.ts.tpl",
         "src/routes.tsx.tpl",
         "src/routes.ts.tpl",
@@ -89,29 +92,7 @@ where
         out.push(file.clone());
     }
 
-    out.push(VirtualFile {
-        path: "rollup.config.mjs".to_owned(),
-        content: render_template(
-            required_template(&scaffold, "rollup.config.mjs.tpl")?,
-            &BTreeMap::from([
-                (
-                    "MODULE_NAME_JSON".to_owned(),
-                    json_string(
-                        normalized
-                            .build
-                            .as_ref()
-                            .and_then(|build| build.module_name.as_deref())
-                            .unwrap_or(&normalized.name),
-                    ),
-                ),
-                (
-                    "EXTERNAL_PACKAGES".to_owned(),
-                    serde_json::to_string_pretty(&runtime_contract::EXTERNAL_PACKAGES)
-                        .map_err(|source| Error::SerializeJson { source })?,
-                ),
-            ]),
-        ),
-    });
+    render_rollup_configs(&scaffold, &mut out)?;
 
     out.push(VirtualFile {
         path: "src/extensionConfig.ts".to_owned(),
@@ -146,6 +127,31 @@ where
         files: out,
         warnings: warnings_for(options),
     })
+}
+
+fn render_rollup_configs(
+    scaffold: &BTreeMap<String, String>,
+    out: &mut Vec<VirtualFile>,
+) -> Result<()> {
+    let replacements = BTreeMap::from([(
+        "EXTERNAL_PACKAGES".to_owned(),
+        serde_json::to_string_pretty(&runtime_contract::EXTERNAL_PACKAGES)
+            .map_err(|source| Error::SerializeJson { source })?,
+    )]);
+
+    for (template_path, output_path) in [
+        ("rollup.config.mjs.tpl", "rollup.config.mjs"),
+        ("rollup.base.config.mjs.tpl", "rollup.base.config.mjs"),
+        ("rollup.dev.config.mjs.tpl", "rollup.dev.config.mjs"),
+        ("rollup.prod.config.mjs.tpl", "rollup.prod.config.mjs"),
+    ] {
+        out.push(VirtualFile {
+            path: output_path.to_owned(),
+            content: render_template(required_template(scaffold, template_path)?, &replacements),
+        });
+    }
+
+    Ok(())
 }
 
 fn validate_manifest(manifest: &ExtensionManifest) -> Result<()> {
@@ -871,6 +877,9 @@ mod tests {
         assert!(paths.contains(&"src/extensionConfig.ts"));
         assert!(paths.contains(&"src/routes.tsx"));
         assert!(paths.contains(&"rollup.config.mjs"));
+        assert!(paths.contains(&"rollup.base.config.mjs"));
+        assert!(paths.contains(&"rollup.dev.config.mjs"));
+        assert!(paths.contains(&"rollup.prod.config.mjs"));
         assert!(paths.contains(&"src/locales/en.json"));
         assert!(paths.contains(&"src/locales/zh.json"));
         assert!(paths.contains(&"src/pages/SamplePage/index.tsx"));
@@ -926,36 +935,62 @@ mod tests {
             .iter()
             .find(|file| file.path == "rollup.config.mjs")
             .unwrap();
-        assert!(rollup_config.content.contains("\"@ks-console/shared\""));
-        assert!(rollup_config.content.contains("\"react\""));
-        assert!(!rollup_config.content.contains("'zustand'"));
-        assert!(rollup_config.content.contains("replaceNodeEnv()"));
+        assert!(rollup_config.content.contains("FORGE_DEV_MODE"));
+        assert!(rollup_config.content.contains("isForgeDevMode()"));
+        assert!(rollup_config.content.contains("rollup.dev.config.mjs"));
+        assert!(rollup_config.content.contains("rollup.prod.config.mjs"));
+
+        let rollup_base_config = result
+            .files
+            .iter()
+            .find(|file| file.path == "rollup.base.config.mjs")
+            .unwrap();
         assert!(
-            rollup_config
+            rollup_base_config
+                .content
+                .contains("\"@ks-console/shared\"")
+        );
+        assert!(rollup_base_config.content.contains("\"react\""));
+        assert!(!rollup_base_config.content.contains("'zustand'"));
+        assert!(rollup_base_config.content.contains("replaceNodeEnv()"));
+        assert!(rollup_base_config.content.contains("preset: 'smallest'"));
+        assert!(rollup_base_config.content.contains("moduleSideEffects"));
+        assert!(rollup_base_config.content.contains("process.env.NODE_ENV"));
+        assert!(rollup_base_config.content.contains("format: 'system'"));
+
+        let rollup_dev_config = result
+            .files
+            .iter()
+            .find(|file| file.path == "rollup.dev.config.mjs")
+            .unwrap();
+        assert!(
+            rollup_dev_config
                 .content
                 .contains("resolveForgeComponentsSource()")
         );
         assert!(
-            rollup_config
+            rollup_dev_config
                 .content
                 .contains("@frontend-forge/forge-components/src/index.ts")
         );
         assert!(
-            rollup_config
+            rollup_dev_config
                 .content
                 .contains("transpileForgeComponentsSource()")
         );
-        assert!(rollup_config.content.contains("ts.transpileModule"));
+        assert!(rollup_dev_config.content.contains("ts.transpileModule"));
         assert!(
-            rollup_config
+            rollup_dev_config
                 .content
                 .contains("/node_modules/@frontend-forge/forge-components/src/")
         );
-        assert!(rollup_config.content.contains("preset: 'smallest'"));
-        assert!(rollup_config.content.contains("moduleSideEffects"));
-        assert!(rollup_config.content.contains("terser("));
-        assert!(rollup_config.content.contains("process.env.NODE_ENV"));
-        assert!(rollup_config.content.contains("format: 'system'"));
+
+        let rollup_prod_config = result
+            .files
+            .iter()
+            .find(|file| file.path == "rollup.prod.config.mjs")
+            .unwrap();
+        assert!(rollup_prod_config.content.contains("terser("));
         assert!(!rollup_config.content.contains("__MODULE_NAME_JSON__"));
     }
 

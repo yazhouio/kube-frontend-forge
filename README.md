@@ -58,9 +58,10 @@ Build the TS runtime components when validating the published package output:
 pnpm --filter @frontend-forge/forge-components build
 ```
 
-Local Job builds resolve `packages/forge-components/src/index.ts` automatically
-when the workspace-linked package has a source entry, so this build step is not
-required before every manifest build.
+Dev-mode Job builds (`FORGE_DEV_MODE=true`) resolve
+`packages/forge-components/src/index.ts` when the workspace-linked package has a
+source entry, so this build step is not required before every local manifest
+build. Production builds keep using the package default entry.
 
 Run the Rust tests:
 
@@ -74,6 +75,7 @@ Run a local full build with the sample manifest:
 ```bash
 FORGE_NODE_MODULES_DIR=/Users/yazhou/code/frontend-forge/crates/forge-job/node_modules \
 FORGE_ROLLUP_BIN=/Users/yazhou/code/frontend-forge/crates/forge-job/node_modules/.bin/rollup \
+FORGE_DEV_MODE=true \
 cargo run -p forge-job --bin frontend-forge-job -- build \
   --input examples/full.json \
   --out-dir .tmp/full-flow/local-out \

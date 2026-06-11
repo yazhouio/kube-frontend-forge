@@ -11,6 +11,7 @@ on:
       - published
 
 env:
+  DOCKER_PR_PLATFORMS: linux/amd64
   DOCKER_PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
@@ -24,23 +25,14 @@ jobs:
       matrix:
         include:
           - image: spike2044/frontend-forge-job
-            target: prod
-            variant: prod
-          - image: spike2044/frontend-forge-job
             target: dev
             variant: dev
-          - image: spike2044/frontend-forge-server
-            target: server-prod
-            variant: prod
           - image: spike2044/frontend-forge-server
             target: server-dev
             variant: dev
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -51,7 +43,7 @@ jobs:
           context: .
           file: crates/forge-job/Dockerfile
           target: ${{ matrix.target }}
-          platforms: ${{ env.DOCKER_PLATFORMS }}
+          platforms: ${{ env.DOCKER_PR_PLATFORMS }}
           push: false
           tags: ${{ matrix.image }}:pr-${{ github.event.pull_request.number }}-${{ matrix.variant }}
           secrets: |

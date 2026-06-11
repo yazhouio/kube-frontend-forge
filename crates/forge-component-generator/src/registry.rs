@@ -232,7 +232,7 @@ impl NodeDefinition for NodeSource {
             .generate_code
             .meta
             .as_ref()
-            .is_some_and(|meta| meta.runtime_deps.iter().any(|dep| *dep == "runtime"))
+            .is_some_and(|meta| meta.runtime_deps.contains(&"runtime"))
         {
             binding_uses.push(BindingUse::Runtime);
         }
@@ -606,15 +606,15 @@ impl DataSourceSource {
         {
             return sanitize_ident(value);
         }
-        if input == "HOOK_NAME" {
-            if let Some(info) = ctx.bindings.data_sources.get(&data_source.id) {
-                return sanitize_ident(&info.hook_name);
-            }
+        if input == "HOOK_NAME"
+            && let Some(info) = ctx.bindings.data_sources.get(&data_source.id)
+        {
+            return sanitize_ident(&info.hook_name);
         }
-        if input == "FETCHER_NAME" {
-            if let Some(info) = ctx.bindings.data_sources.get(&data_source.id) {
-                return sanitize_ident(&info.fetcher_name);
-            }
+        if input == "FETCHER_NAME"
+            && let Some(info) = ctx.bindings.data_sources.get(&data_source.id)
+        {
+            return sanitize_ident(&info.fetcher_name);
         }
         sanitize_ident(input)
     }

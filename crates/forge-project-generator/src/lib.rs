@@ -185,10 +185,10 @@ fn validate_manifest(manifest: &ExtensionManifest) -> Result<()> {
         )?;
     }
 
-    if let Some(build) = &manifest.build {
-        if build.target != "kubesphere-extension" {
-            return Err(Error::InvalidBuildTarget);
-        }
+    if let Some(build) = &manifest.build
+        && build.target != "kubesphere-extension"
+    {
+        return Err(Error::InvalidBuildTarget);
     }
 
     let mut page_ids = BTreeSet::new();

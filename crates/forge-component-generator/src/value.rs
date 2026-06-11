@@ -29,16 +29,11 @@ pub struct DataSourceBindingInfo {
     pub arg_binding_uses: Vec<BindingUse>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum DataSourceCallMode {
+    #[default]
     Hook,
     Value,
-}
-
-impl Default for DataSourceCallMode {
-    fn default() -> Self {
-        Self::Hook
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

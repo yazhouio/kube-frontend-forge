@@ -916,10 +916,10 @@ fn detect_pnpm_version() -> Option<String> {
 }
 
 fn detect_forge_components_version() -> Option<String> {
-    if let Ok(value) = env::var("FORGE_COMPONENTS_VERSION") {
-        if !value.trim().is_empty() {
-            return Some(value);
-        }
+    if let Ok(value) = env::var("FORGE_COMPONENTS_VERSION")
+        && !value.trim().is_empty()
+    {
+        return Some(value);
     }
     let explicit = env::var("FORGE_COMPONENTS_PACKAGE_JSON")
         .ok()

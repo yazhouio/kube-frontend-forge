@@ -1,0 +1,1608 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frontend-forge.dev/schemas/manifest.schema.json",
+  "title": "Frontend Forge Manifest",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/manifest"
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest"
+      ],
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/manifest"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "componentTree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "meta",
+        "root"
+      ],
+      "properties": {
+        "meta": {
+          "$ref": "#/$defs/pageMeta"
+        },
+        "dataSources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dataSourceNode"
+          },
+          "default": []
+        },
+        "actionGraphs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/actionGraph"
+          },
+          "default": []
+        },
+        "root": {
+          "$ref": "#/$defs/componentNode"
+        },
+        "context": {
+          "default": {}
+        }
+      }
+    },
+    "pageMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "componentMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "type": "boolean",
+          "default": false
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "componentNode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "Layout"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "TEXT": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Layout text"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "meta": {
+              "$ref": "#/$defs/componentMeta"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/componentNode"
+              },
+              "default": []
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "Text"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "DEFAULT_VALUE": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "number",
+                      "description": "Default value"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "TEXT": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Text content"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "meta": {
+              "$ref": "#/$defs/componentMeta"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/componentNode"
+              },
+              "default": []
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "Iframe"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "FRAME_URL": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Iframe src url"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "meta": {
+              "$ref": "#/$defs/componentMeta"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/componentNode"
+              },
+              "default": []
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "CrdTable"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "TABLE_KEY": {},
+                "TITLE": {},
+                "AUTH_KEY": {},
+                "PARAMS": {},
+                "REFETCH": {},
+                "TOOLBAR_LEFT": {},
+                "PAGE_CONTEXT": {},
+                "COLUMNS": {},
+                "DATA": {},
+                "NOT_FOUND_EMPTY_PROPS": {},
+                "IS_LOADING": {},
+                "UPDATE": {},
+                "DEL": {},
+                "CREATE": {},
+                "CREATE_INITIAL_VALUE": {}
+              },
+              "additionalProperties": false
+            },
+            "meta": {
+              "$ref": "#/$defs/componentMeta"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/componentNode"
+              },
+              "default": []
+            }
+          }
+        }
+      ]
+    },
+    "dataSourceNode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "static"
+            },
+            "config": {
+              "type": "object",
+              "properties": {
+                "DATA": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "description": "Static payload"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "HOOK_NAME": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Hook name"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "args": {
+              "type": "array",
+              "items": true,
+              "default": []
+            },
+            "autoLoad": {
+              "type": "boolean"
+            },
+            "polling": true
+          },
+          "x-outputs": [
+            "data",
+            "error",
+            "isLoading",
+            "mutate"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "rest"
+            },
+            "config": {
+              "type": "object",
+              "properties": {
+                "AUTO_LOAD": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "boolean",
+                      "description": "Auto load on mount"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "DEFAULT_VALUE": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "description": "Default response value"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "FETCHER_NAME": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Fetcher name"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "HEADERS": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "description": "Request headers"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "HOOK_NAME": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Hook name"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "METHOD": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Request method"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "URL": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Request URL"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "args": {
+              "type": "array",
+              "items": true,
+              "default": []
+            },
+            "autoLoad": {
+              "type": "boolean"
+            },
+            "polling": true
+          },
+          "x-outputs": [
+            "data",
+            "error",
+            "isLoading",
+            "mutate"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "crd-columns"
+            },
+            "config": {
+              "type": "object",
+              "properties": {
+                "COLUMNS_CONFIG": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "array",
+                      "description": "Columns config"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "HOOK_NAME": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Hook name"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "args": {
+              "type": "array",
+              "items": true,
+              "default": []
+            },
+            "autoLoad": {
+              "type": "boolean"
+            },
+            "polling": true
+          },
+          "x-outputs": [
+            "columns"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "crd-page-state"
+            },
+            "config": {
+              "type": "object",
+              "properties": {
+                "CRD_CONFIG": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "description": "CRD store config"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "HOOK_NAME": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Hook name"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "PAGE_ID": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Page id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "SCOPE": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Scope name"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "args": {
+              "type": "array",
+              "items": true,
+              "default": []
+            },
+            "autoLoad": {
+              "type": "boolean"
+            },
+            "polling": true
+          },
+          "x-outputs": [
+            "create",
+            "data",
+            "del",
+            "loading",
+            "pageContext",
+            "params",
+            "refetch",
+            "toolbarLeft",
+            "update"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "workspace-crd-page-state"
+            },
+            "config": {
+              "type": "object",
+              "properties": {
+                "CRD_CONFIG": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "description": "CRD store config"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "HOOK_NAME": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Hook name"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "PAGE_ID": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Page id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "SCOPE": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "binding"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "const": "expression"
+                        },
+                        "code": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "code"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "description": "Scope name"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "args": {
+              "type": "array",
+              "items": true,
+              "default": []
+            },
+            "autoLoad": {
+              "type": "boolean"
+            },
+            "polling": true
+          },
+          "x-outputs": [
+            "create",
+            "data",
+            "del",
+            "loading",
+            "pageContext",
+            "params",
+            "refetch",
+            "toolbarLeft",
+            "update"
+          ]
+        }
+      ]
+    },
+    "actionGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "default": {}
+        },
+        "actions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/actionNode"
+          },
+          "default": {}
+        }
+      }
+    },
+    "actionNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "on"
+      ],
+      "properties": {
+        "on": {
+          "type": "string",
+          "minLength": 1
+        },
+        "do": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/actionStep"
+          },
+          "default": []
+        }
+      }
+    },
+    "actionStep": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "to",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "assign"
+            },
+            "to": {
+              "type": "string",
+              "minLength": 1
+            },
+            "value": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id"
+          ],
+          "properties": {
+            "type": {
+              "const": "callDataSource"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "path"
+          ],
+          "properties": {
+            "type": {
+              "const": "reset"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "path"
+          ],
+          "properties": {
+            "type": {
+              "const": "navigate"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "goBack"
+            }
+          }
+        }
+      ]
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "name",
+        "routes",
+        "menus",
+        "locales",
+        "pages"
+      ],
+      "properties": {
+        "version": {
+          "const": "1.0"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/route"
+          }
+        },
+        "menus": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/menu"
+          }
+        },
+        "locales": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/locale"
+          }
+        },
+        "pages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/page"
+          }
+        },
+        "build": {
+          "$ref": "#/$defs/build"
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "pageId"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pageId": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "menu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parent",
+        "name",
+        "title"
+      ],
+      "properties": {
+        "parent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "icon": {
+          "type": "string"
+        },
+        "order": {
+          "type": "number"
+        },
+        "clusterModule": {
+          "type": "string"
+        },
+        "skipWorkspaceAuth": {
+          "type": "boolean"
+        }
+      }
+    },
+    "locale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lang",
+        "messages"
+      ],
+      "properties": {
+        "lang": {
+          "type": "string",
+          "minLength": 1
+        },
+        "messages": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "entryComponent",
+        "componentsTree"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entryComponent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "componentsTree": {
+          "$ref": "#/$defs/componentTree"
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target"
+      ],
+      "properties": {
+        "target": {
+          "const": "kubesphere-extension"
+        },
+        "moduleName": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "cluster": {
+          "type": "string"
+        },
+        "systemjs": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

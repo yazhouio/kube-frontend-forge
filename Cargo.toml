@@ -4,6 +4,7 @@ members = [
   "crates/forge-component-generator",
   "crates/forge-core",
   "crates/forge-project-generator",
+  "xtask",
 ]
 resolver = "3"
 

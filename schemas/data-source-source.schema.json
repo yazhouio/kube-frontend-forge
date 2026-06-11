@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frontend-forge.dev/schemas/data-source-source.schema.json",
+  "title": "Frontend Forge DataSourceSource",
+  "$ref": "#/$defs/dataSourceSource",
+  "$defs": {
+    "dataSourceSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "generateCode"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "templateInputs": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/templateInput"
+              },
+              "default": {}
+            },
+            "outputs": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/templateOutput"
+              },
+              "default": {}
+            }
+          },
+          "default": {}
+        },
+        "generateCode": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "imports": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            },
+            "stats": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/statSource"
+              },
+              "default": []
+            },
+            "meta": {
+              "$ref": "#/$defs/nodeSourceMeta"
+            },
+            "callMode": {
+              "type": "string",
+              "enum": [
+                "hook",
+                "value"
+              ],
+              "default": "hook"
+            },
+            "actionMode": {
+              "type": "string",
+              "enum": [
+                "set",
+                "request",
+                "mutate"
+              ],
+              "default": "mutate"
+            },
+            "defaults": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/templateDefault"
+              },
+              "default": {}
+            }
+          }
+        }
+      }
+    },
+    "templateInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "array",
+            "boolean",
+            "integer",
+            "number",
+            "object",
+            "string"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "default": ""
+        }
+      }
+    },
+    "templateOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "statSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "scope",
+        "code"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "$ref": "#/$defs/statementScope"
+        },
+        "code": {
+          "type": "string"
+        },
+        "output": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        },
+        "depends": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        }
+      }
+    },
+    "statementScope": {
+      "type": "string",
+      "enum": [
+        "moduleImport",
+        "moduleDecl",
+        "moduleInit",
+        "functionDecl",
+        "functionBody",
+        "block",
+        "controlFlow",
+        "jsx"
+      ]
+    },
+    "nodeSourceMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inputPaths": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "default": {}
+        },
+        "runtimeDeps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        }
+      }
+    },
+    "templateDefault": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "dataSourceIdJson"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

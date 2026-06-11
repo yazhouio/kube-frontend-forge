@@ -5,6 +5,8 @@ FROM rust:1-bookworm AS rust-builder
 WORKDIR /workspace
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY schemas ./schemas
+COPY xtask ./xtask
 RUN --mount=type=cache,id=forge-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=forge-cargo-git,target=/usr/local/cargo/git \
     cargo build --release -p forge-job
@@ -32,7 +34,9 @@ RUN --mount=type=cache,id=forge-pnpm-store,target=/pnpm/store \
       pnpm config set "//internal-registry.npm.kubesphere.com.cn/:_auth" "$NPM_AUTH_BASE64"; \
       pnpm config set "//internal-registry.npm.kubesphere.com.cn/:always-auth" true; \
     fi; \
-    pnpm install --frozen-lockfile --store-dir /pnpm/store
+    pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store \
+      --filter @frontend-forge/forge-components \
+      --filter @frontend-forge/forge-job-runtime
 
 COPY packages/forge-components ./packages/forge-components
 RUN pnpm --filter @frontend-forge/forge-components build

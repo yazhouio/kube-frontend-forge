@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@11.1.0",
   "scripts": {
-    "prepare": "lefthook install"
+    "prepare": "node scripts/install-lefthook.mjs"
   },
   "workspaces": [
     "crates/forge-job",

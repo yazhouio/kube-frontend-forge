@@ -6,4 +6,5 @@ license.workspace = true
 
 [dependencies]
 forge-core = { path = "../crates/forge-core" }
+git-conventional.workspace = true
 serde_json.workspace = true

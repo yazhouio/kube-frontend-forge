@@ -6,3 +6,7 @@ pre-commit:
       run: cargo run -p xtask -- fmt --check
     clippy:
       run: cargo run -p xtask -- clippy
+commit-msg:
+  commands:
+    commit-msg:
+      run: cargo run -p xtask -- commit-msg {1}

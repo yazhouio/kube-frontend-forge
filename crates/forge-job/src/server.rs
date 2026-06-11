@@ -3,13 +3,14 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::Path as AxumPath,
+    extract::{Path as AxumPath, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -67,6 +68,7 @@ async fn run() -> Result<()> {
 }
 
 fn build_router(config: ServerConfig) -> Result<Router> {
+    let state = AppState::try_new()?;
     let mut app = Router::new()
         .route("/schemas/{name}", get(schema_file))
         .route("/api/project/files", post(project_files))
@@ -79,7 +81,7 @@ fn build_router(config: ServerConfig) -> Result<Router> {
         app = app.nest_service(&prefix, ServeDir::new(route.root));
     }
 
-    Ok(app)
+    Ok(app.with_state(state))
 }
 
 fn parse_server_options() -> Result<ServerOptions> {
@@ -225,6 +227,26 @@ struct StaticRouteConfig {
     prefix: String,
 }
 
+#[derive(Clone)]
+struct AppState {
+    core: Arc<ForgeCore>,
+    manifest_validator: Arc<jsonschema::Validator>,
+}
+
+impl AppState {
+    fn try_new() -> Result<Self> {
+        let core = Arc::new(ForgeCore::try_new()?);
+        let schema = core.manifest_schema();
+        let manifest_validator = jsonschema::validator_for(&schema).map_err(|source| {
+            ServerError::internal(format!("failed to compile manifest.schema.json: {source}"))
+        })?;
+        Ok(Self {
+            core,
+            manifest_validator: Arc::new(manifest_validator),
+        })
+    }
+}
+
 async fn schema_file(AxumPath(name): AxumPath<String>) -> Result<Response> {
     let Some((_, content)) = SCHEMA_FILES.iter().find(|(file, _)| *file == name) else {
         return Err(ServerError::not_found(format!("schema `{name}` not found")));
@@ -235,28 +257,41 @@ async fn schema_file(AxumPath(name): AxumPath<String>) -> Result<Response> {
     ))
 }
 
-async fn project_files(Json(value): Json<Value>) -> Result<Json<Vec<VirtualFile>>> {
-    let files = spawn_blocking(move || create_project_files(value)).await?;
+async fn project_files(
+    State(state): State<AppState>,
+    Json(value): Json<Value>,
+) -> Result<Json<Vec<VirtualFile>>> {
+    let files = spawn_blocking(move || create_project_files(&state, value)).await?;
     Ok(Json(files))
 }
 
-async fn project_files_tar(Json(value): Json<Value>) -> Result<Response> {
+async fn project_files_tar(
+    State(state): State<AppState>,
+    Json(value): Json<Value>,
+) -> Result<Response> {
     let bytes = spawn_blocking(move || {
-        let files = create_project_files(value)?;
+        let files = create_project_files(&state, value)?;
         archive_virtual_files(&files)
     })
     .await?;
     Ok(tar_response(bytes, "project.tar.gz"))
 }
 
-async fn project_build(Json(value): Json<Value>) -> Result<Json<Vec<VirtualFile>>> {
-    let files = spawn_blocking(move || build_project(value).map(|result| result.files)).await?;
+async fn project_build(
+    State(state): State<AppState>,
+    Json(value): Json<Value>,
+) -> Result<Json<Vec<VirtualFile>>> {
+    let files =
+        spawn_blocking(move || build_project(&state, value).map(|result| result.files)).await?;
     Ok(Json(files))
 }
 
-async fn project_build_tar(Json(value): Json<Value>) -> Result<Response> {
+async fn project_build_tar(
+    State(state): State<AppState>,
+    Json(value): Json<Value>,
+) -> Result<Response> {
     let bytes = spawn_blocking(move || {
-        let result = build_project(value)?;
+        let result = build_project(&state, value)?;
         archive_directory(&result.dist_dir)
     })
     .await?;
@@ -271,15 +306,15 @@ where
     tokio::task::spawn_blocking(task).await?
 }
 
-fn create_project_files(value: Value) -> Result<Vec<VirtualFile>> {
-    let manifest = parse_manifest(value)?;
-    let result = ForgeCore::try_new()?.generate_project_files(&manifest)?;
+fn create_project_files(state: &AppState, value: Value) -> Result<Vec<VirtualFile>> {
+    let manifest = parse_manifest(state, value)?;
+    let result = state.core.generate_project_files(&manifest)?;
     Ok(result.files)
 }
 
-fn build_project(value: Value) -> Result<BuildOutput> {
-    let manifest = parse_manifest(value)?;
-    let plan = ForgeCore::try_new()?.create_build_plan(&manifest)?;
+fn build_project(state: &AppState, value: Value) -> Result<BuildOutput> {
+    let manifest = parse_manifest(state, value)?;
+    let plan = state.core.create_build_plan(&manifest)?;
     let work = TempDir::new()?;
     let project_dir = work.path().join("project");
     write_virtual_files(&project_dir, &plan.files)?;
@@ -295,17 +330,13 @@ fn build_project(value: Value) -> Result<BuildOutput> {
     })
 }
 
-fn parse_manifest(value: Value) -> Result<ExtensionManifest> {
-    validate_manifest_json(&value)?;
+fn parse_manifest(state: &AppState, value: Value) -> Result<ExtensionManifest> {
+    validate_manifest_json(state, &value)?;
     unwrap_manifest(value).map_err(ServerError::from)
 }
 
-fn validate_manifest_json(value: &Value) -> Result<()> {
-    let schema = ForgeCore::try_new()?.manifest_schema();
-    let validator = jsonschema::validator_for(&schema).map_err(|source| {
-        ServerError::internal(format!("failed to compile manifest.schema.json: {source}"))
-    })?;
-    validator.validate(value).map_err(|source| {
+fn validate_manifest_json(state: &AppState, value: &Value) -> Result<()> {
+    state.manifest_validator.validate(value).map_err(|source| {
         ServerError::bad_request(format!("manifest schema validation failed: {source}"))
     })
 }

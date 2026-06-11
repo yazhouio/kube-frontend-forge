@@ -3,7 +3,10 @@ mod runtime_contract;
 mod schema;
 mod types;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::LazyLock,
+};
 
 use include_dir::{Dir, include_dir};
 use oxc_allocator::Allocator;
@@ -25,6 +28,14 @@ pub use types::{
 };
 
 static SCAFFOLD_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/scaffold");
+static SCAFFOLD_CACHE: LazyLock<ScaffoldCache> =
+    LazyLock::new(|| build_scaffold_cache().expect("bundled forge project scaffold must be valid"));
+
+struct ScaffoldCache {
+    files: Vec<VirtualFile>,
+    templates: BTreeMap<String, String>,
+    default_locales: Vec<LocaleMeta>,
+}
 
 pub type PageRenderer<'a> = dyn Fn(&PageMeta, &ExtensionManifest) -> Result<String> + 'a;
 
@@ -55,15 +66,9 @@ where
     validate_manifest(manifest)?;
     let normalized = normalize_manifest(manifest);
 
-    let scaffold_files = collect_scaffold_files()?;
-    let scaffold = scaffold_files
-        .iter()
-        .map(|file| (file.path.clone(), file.content.clone()))
-        .collect::<BTreeMap<_, _>>();
-    let merged_locales = merge_locales(
-        read_scaffold_default_locales(&scaffold)?,
-        &normalized.locales,
-    );
+    let scaffold = scaffold_cache();
+    let templates = &scaffold.templates;
+    let merged_locales = merge_locales(scaffold.default_locales.clone(), &normalized.locales);
 
     let mut out = Vec::<VirtualFile>::new();
     let excluded = BTreeSet::from([
@@ -80,7 +85,7 @@ where
         "src/pages/__PAGE__/page.tsx.tpl",
     ]);
 
-    for file in &scaffold_files {
+    for file in &scaffold.files {
         if excluded.contains(file.path.as_str()) {
             continue;
         }
@@ -92,12 +97,12 @@ where
         out.push(file.clone());
     }
 
-    render_rollup_configs(&scaffold, &mut out)?;
+    render_rollup_configs(templates, &mut out)?;
 
     out.push(VirtualFile {
         path: "src/extensionConfig.ts".to_owned(),
         content: render_template(
-            required_template(&scaffold, "src/extensionConfig.ts.tpl")?,
+            required_template(templates, "src/extensionConfig.ts.tpl")?,
             &BTreeMap::from([(
                 "MENUS".to_owned(),
                 serde_json::to_string_pretty(&normalized.menus)
@@ -106,15 +111,15 @@ where
         ),
     });
 
-    render_routes(&normalized, &scaffold, &mut out)?;
-    render_locales(&merged_locales, &scaffold, &mut out)?;
-    render_pages(&normalized, &scaffold, &renderer, &mut out)?;
+    render_routes(&normalized, templates, &mut out)?;
+    render_locales(&merged_locales, templates, &mut out)?;
+    render_pages(&normalized, templates, &renderer, &mut out)?;
 
     let dependencies = render_dependency_entries(&out)?;
     out.push(VirtualFile {
         path: "package.json".to_owned(),
         content: render_template(
-            required_template(&scaffold, "package.json.tpl")?,
+            required_template(templates, "package.json.tpl")?,
             &BTreeMap::from([
                 ("NAME".to_owned(), normalized.name.clone()),
                 ("VERSION".to_owned(), normalized.version.clone()),
@@ -249,6 +254,24 @@ fn normalize_manifest(manifest: &ExtensionManifest) -> ExtensionManifest {
             systemjs: build.systemjs,
         }),
     }
+}
+
+fn scaffold_cache() -> &'static ScaffoldCache {
+    &SCAFFOLD_CACHE
+}
+
+fn build_scaffold_cache() -> Result<ScaffoldCache> {
+    let files = collect_scaffold_files()?;
+    let templates = files
+        .iter()
+        .map(|file| (file.path.clone(), file.content.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let default_locales = read_scaffold_default_locales(&templates)?;
+    Ok(ScaffoldCache {
+        files,
+        templates,
+        default_locales,
+    })
 }
 
 fn collect_scaffold_files() -> Result<Vec<VirtualFile>> {

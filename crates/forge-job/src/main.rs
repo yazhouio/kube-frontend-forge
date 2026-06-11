@@ -4,6 +4,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::LazyLock,
     time::{Duration, Instant},
 };
 
@@ -17,6 +18,11 @@ use snafu::Snafu;
 use tempfile::TempDir;
 
 type Result<T, E = Error> = std::result::Result<T, E>;
+
+static MANIFEST_VALIDATOR: LazyLock<jsonschema::Validator> = LazyLock::new(|| {
+    let schema = ForgeCore::shared().manifest_schema();
+    jsonschema::validator_for(&schema).expect("manifest schema must compile")
+});
 
 fn main() {
     if let Err(error) = run() {
@@ -37,13 +43,13 @@ fn run() -> Result<()> {
 
 fn run_page_code(args: InputOutputArgs) -> Result<()> {
     let value = read_json(&args.input)?;
-    let code = ForgeCore::try_new()?.generate_page_code(value)?;
+    let code = ForgeCore::shared().generate_page_code(value)?;
     write_text_or_stdout(args.out, &code)
 }
 
 fn run_project_files(args: InputOutputArgs) -> Result<()> {
     let manifest = read_manifest(&args.input)?;
-    let result = ForgeCore::try_new()?.generate_project_files(&manifest)?;
+    let result = ForgeCore::shared().generate_project_files(&manifest)?;
     let output = serde_json::to_string_pretty(&result).context(SerializeJsonSnafu)?;
     write_text_or_stdout(args.out, &(output + "\n"))
 }
@@ -52,7 +58,7 @@ fn run_schema(args: SchemaArgs) -> Result<()> {
     fs::create_dir_all(&args.out_dir).context(CreateDirSnafu {
         path: args.out_dir.clone(),
     })?;
-    let core = ForgeCore::try_new()?;
+    let core = ForgeCore::shared();
     write_json_file(
         &args.out_dir.join("component-tree.schema.json"),
         &core.component_tree_schema(),
@@ -95,8 +101,10 @@ fn run_build(args: BuildArgs) -> Result<()> {
         });
 
         let plan_started = Instant::now();
-        let plan = ForgeCore::try_new()?.create_build_plan(&manifest)?;
+        let plan = ForgeCore::shared().create_build_plan(&manifest)?;
         timings.plan_ms = elapsed_ms(plan_started);
+        timings.project_gen_ms = plan.timings.project_gen_ms;
+        timings.component_gen_ms = plan.timings.component_gen_ms;
         warnings.extend(plan.warnings.clone());
 
         let work = TempDir::new().context(CreateTempDirSnafu)?;
@@ -323,12 +331,7 @@ fn read_json(path: &Path) -> Result<serde_json::Value> {
 }
 
 fn validate_manifest_json(path: &Path, value: &serde_json::Value) -> Result<()> {
-    let schema = ForgeCore::try_new()?.manifest_schema();
-    let validator = jsonschema::validator_for(&schema).map_err(|err| Error::SchemaCompile {
-        schema: "manifest.schema.json",
-        message: err.to_string(),
-    })?;
-    validator
+    MANIFEST_VALIDATOR
         .validate(value)
         .map_err(|err| Error::SchemaValidation {
             path: path.to_path_buf(),
@@ -867,6 +870,8 @@ struct BundleFileSummary {
 struct Timings {
     total_ms: u64,
     plan_ms: u64,
+    project_gen_ms: u64,
+    component_gen_ms: u64,
     write_project_ms: u64,
     rollup_ms: u64,
     archive_ms: u64,
@@ -1067,12 +1072,6 @@ enum Error {
 
     #[snafu(display("failed to serialize json: {source}"))]
     SerializeJson { source: serde_json::Error },
-
-    #[snafu(display("failed to compile {schema}: {message}"))]
-    SchemaCompile {
-        schema: &'static str,
-        message: String,
-    },
 
     #[snafu(display("manifest schema validation failed for {}: {message}", path.display()))]
     SchemaValidation { path: PathBuf, message: String },

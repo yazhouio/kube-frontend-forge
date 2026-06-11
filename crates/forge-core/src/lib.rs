@@ -1,5 +1,7 @@
 mod error;
 
+use std::{cell::Cell, sync::LazyLock, time::Instant};
+
 use forge_component_generator::{
     ComponentGenerator, builtins::default_registry, component_tree_schema,
     data_source_source_schema, node_source_schema, unwrap_page_schema,
@@ -21,6 +23,7 @@ pub struct BuildPlan {
     pub entry: String,
     pub files: Vec<VirtualFile>,
     pub expectations: BuildExpectations,
+    pub timings: BuildPlanTimings,
     pub warnings: Vec<String>,
 }
 
@@ -31,9 +34,18 @@ pub struct BuildExpectations {
     pub dist_dir: String,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildPlanTimings {
+    pub project_gen_ms: u64,
+    pub component_gen_ms: u64,
+}
+
 pub struct ForgeCore {
     component_generator: ComponentGenerator,
 }
+
+static DEFAULT_CORE: LazyLock<ForgeCore> = LazyLock::new(ForgeCore::new);
 
 impl Default for ForgeCore {
     fn default() -> Self {
@@ -53,6 +65,10 @@ impl ForgeCore {
 
     pub fn new() -> Self {
         Self::try_new().expect("forge core component generator registry must be valid")
+    }
+
+    pub fn shared() -> &'static Self {
+        &DEFAULT_CORE
     }
 
     pub fn generate_page_code(&self, page_schema: Value) -> Result<String> {
@@ -91,7 +107,24 @@ impl ForgeCore {
     }
 
     pub fn create_build_plan(&self, manifest: &ExtensionManifest) -> Result<BuildPlan> {
-        let result = self.generate_project_files(manifest)?;
+        let component_gen_ms = Cell::new(0_u64);
+        let plan_started = Instant::now();
+        let result = generate_project_files(
+            manifest,
+            |page, _manifest| {
+                let render_started = Instant::now();
+                let output = self.render_manifest_page(page);
+                component_gen_ms.set(
+                    component_gen_ms
+                        .get()
+                        .saturating_add(elapsed_ms(render_started)),
+                );
+                output
+            },
+            GenerateProjectFilesOptions::default(),
+        )?;
+        let total_ms = elapsed_ms(plan_started);
+        let component_gen_ms = component_gen_ms.get();
         Ok(BuildPlan {
             manifest_name: manifest.name.clone(),
             module_name: manifest
@@ -107,6 +140,10 @@ impl ForgeCore {
                     .unwrap_or(true),
                 dist_dir: "dist".to_owned(),
             },
+            timings: BuildPlanTimings {
+                project_gen_ms: total_ms.saturating_sub(component_gen_ms),
+                component_gen_ms,
+            },
             files: result.files,
             warnings: result.warnings,
         })
@@ -119,6 +156,10 @@ impl ForgeCore {
                 message: source.to_string(),
             })
     }
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 #[cfg(test)]

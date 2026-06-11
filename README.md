@@ -52,11 +52,15 @@ The pnpm workspace is intentionally narrow: `crates/forge-job` provides the
 Rollup/Node runtime dependencies, and `packages/forge-components` is the
 TS/React runtime package linked by the Job.
 
-Build the TS runtime components:
+Build the TS runtime components when validating the published package output:
 
 ```bash
 pnpm --filter @frontend-forge/forge-components build
 ```
+
+Local Job builds resolve `packages/forge-components/src/index.ts` automatically
+when the workspace-linked package has a source entry, so this build step is not
+required before every manifest build.
 
 Run the Rust tests:
 

@@ -10,6 +10,10 @@ The crate mirrors the current TypeScript generator responsibilities:
 - merge scaffold default locales with manifest locales
 - return generated `VirtualFile` values and warnings
 
+Generated Rollup projects resolve workspace-linked `@frontend-forge/forge-components`
+from `src/index.ts` when that source entry exists, and fall back to the package
+default entry otherwise.
+
 The page body is supplied by a `PageRenderer` callback in library usage. The CLI uses a minimal placeholder page renderer, so it is mostly for testing the project-file pipeline independently from `forge-core`.
 
 ## Usage

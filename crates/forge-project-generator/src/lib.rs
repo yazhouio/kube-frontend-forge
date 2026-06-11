@@ -930,6 +930,27 @@ mod tests {
         assert!(rollup_config.content.contains("\"react\""));
         assert!(!rollup_config.content.contains("'zustand'"));
         assert!(rollup_config.content.contains("replaceNodeEnv()"));
+        assert!(
+            rollup_config
+                .content
+                .contains("resolveForgeComponentsSource()")
+        );
+        assert!(
+            rollup_config
+                .content
+                .contains("@frontend-forge/forge-components/src/index.ts")
+        );
+        assert!(
+            rollup_config
+                .content
+                .contains("transpileForgeComponentsSource()")
+        );
+        assert!(rollup_config.content.contains("ts.transpileModule"));
+        assert!(
+            rollup_config
+                .content
+                .contains("/node_modules/@frontend-forge/forge-components/src/")
+        );
         assert!(rollup_config.content.contains("preset: 'smallest'"));
         assert!(rollup_config.content.contains("moduleSideEffects"));
         assert!(rollup_config.content.contains("terser("));

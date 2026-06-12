@@ -8,7 +8,8 @@ use crate::model::{ActionGraphSchema, ActionStep, ComponentNode, DataSourceNode}
 use crate::registry::RenderContext;
 use crate::value::{
     ActionGraphBindingInfo, BindingContext, BindingUse, DataSourceActionMode, DataSourceCallMode,
-    camel_case, expr_to_code, pascal_case, resolve_binding_output_var_name,
+    camel_case, collect_binding_uses, expr_to_code, expr_to_code_with_context, pascal_case,
+    resolve_binding_output_var_name,
 };
 
 #[derive(Default)]
@@ -129,7 +130,12 @@ impl ActionGraphPlan {
         Ok(())
     }
 
-    pub fn binding_uses_for_graphs(&self, graph_ids: &IndexSet<String>) -> Vec<BindingUse> {
+    pub fn binding_uses_for_graphs(
+        &self,
+        graph_ids: &IndexSet<String>,
+        bindings: &BindingContext,
+        data_sources_by_id: &BTreeMap<&str, &DataSourceNode>,
+    ) -> Vec<BindingUse> {
         let mut out = Vec::new();
         for graph_id in graph_ids {
             let Some(graph) = self.graphs.get(graph_id) else {
@@ -142,6 +148,12 @@ impl ActionGraphPlan {
                             source: id.clone(),
                             output: "mutate".to_owned(),
                         });
+                        if bindings.data_sources.get(id).is_some_and(|binding| {
+                            binding.action_mode == DataSourceActionMode::Request
+                        }) && let Some(data_source) = data_sources_by_id.get(id.as_str())
+                        {
+                            out.extend(data_source_config_binding_uses(data_source, bindings));
+                        }
                     }
                 }
             }
@@ -421,9 +433,9 @@ fn build_call_data_source_stat(
   return request();
 }}"#,
                             id = id,
-                            url = config_expr(data_source, "URL", "undefined")?,
-                            method = config_expr(data_source, "METHOD", r#""GET""#)?,
-                            headers = config_expr(data_source, "HEADERS", "undefined")?,
+                            url = config_expr(data_source, "URL", "undefined", bindings)?,
+                            method = config_expr(data_source, "METHOD", r#""GET""#, bindings)?,
+                            headers = config_expr(data_source, "HEADERS", "undefined", bindings)?,
                         ));
                     }
                     DataSourceActionMode::Mutate => {
@@ -494,11 +506,27 @@ impl ActionGraphInfo {
     }
 }
 
-fn config_expr(data_source: &DataSourceNode, key: &str, fallback: &str) -> Result<String> {
+fn data_source_config_binding_uses(
+    data_source: &DataSourceNode,
+    bindings: &BindingContext,
+) -> Vec<BindingUse> {
+    ["URL", "METHOD", "HEADERS"]
+        .into_iter()
+        .filter_map(|key| data_source.config.get(key))
+        .flat_map(|value| collect_binding_uses(value, bindings))
+        .collect()
+}
+
+fn config_expr(
+    data_source: &DataSourceNode,
+    key: &str,
+    fallback: &str,
+    bindings: &BindingContext,
+) -> Result<String> {
     data_source
         .config
         .get(key)
-        .map(expr_to_code)
+        .map(|value| expr_to_code_with_context(value, bindings))
         .transpose()
         .map(|value| value.unwrap_or_else(|| fallback.to_owned()))
 }

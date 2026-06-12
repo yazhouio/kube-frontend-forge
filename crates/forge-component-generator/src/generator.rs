@@ -109,7 +109,11 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
             action_graphs,
         )?;
         let mut binding_uses = fragment.binding_uses.clone();
-        binding_uses.extend(action_graphs.binding_uses_for_graphs(&fragment.action_graph_ids));
+        binding_uses.extend(action_graphs.binding_uses_for_graphs(
+            &fragment.action_graph_ids,
+            &ctx.bindings,
+            data_sources_by_id,
+        ));
         let data_source_stats =
             self.render_used_data_sources(ctx, &binding_uses, data_sources_by_id)?;
         let component_name = component_names.allocate_component_name(
@@ -2044,6 +2048,93 @@ mod tests {
         assert_code_contains(&code, r#"const url = "/api/users";"#);
         assert_code_contains(&code, r#"const method = ("POST" || "GET").toUpperCase();"#);
         assert_code_contains(&code, "return mutate(effect, {");
+    }
+
+    #[test]
+    fn action_graph_rest_config_bindings_use_active_binding_context() {
+        let mut registry = crate::builtins::default_registry();
+        registry.register_node(NodeSource::new(
+            "Button",
+            NodeSourceGenerateCode {
+                jsx: Some("<button onClick={%%ON_CLICK%%}>{%%LABEL%%}</button>"),
+                meta: Some(NodeSourceMeta {
+                    input_paths: [("$jsx", vec!["ON_CLICK", "LABEL"])].into_iter().collect(),
+                    runtime_deps: Vec::new(),
+                }),
+                ..NodeSourceGenerateCode::default()
+            },
+        ));
+
+        let raw = serde_json::json!({
+          "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+          "dataSources": [
+            {
+              "id": "request-config",
+              "type": "static",
+              "config": {
+                "DATA": {
+                  "url": "/api/users",
+                  "headers": { "X-Source": "action" }
+                }
+              }
+            },
+            {
+              "id": "create-user",
+              "type": "rest",
+              "config": {
+                "URL": {
+                  "type": "binding",
+                  "source": "request-config",
+                  "path": "data.url"
+                },
+                "METHOD": "POST",
+                "HEADERS": {
+                  "type": "binding",
+                  "source": "request-config",
+                  "path": "data.headers"
+                },
+                "DEFAULT_VALUE": null
+              },
+              "autoLoad": false
+            }
+          ],
+          "root": {
+            "id": "button-submit",
+            "meta": { "scope": true, "title": "SamplePage" },
+            "type": "Button",
+            "props": { "LABEL": "Submit" }
+          },
+          "actionGraphs": [
+            {
+              "id": "formGraph",
+              "context": {},
+              "actions": {
+                "SUBMIT": {
+                  "on": "button-submit.click",
+                  "do": [
+                    { "type": "callDataSource", "id": "create-user", "args": [] }
+                  ]
+                }
+              }
+            }
+          ],
+          "context": {}
+        });
+        let page = unwrap_page_schema(raw).unwrap();
+        let code = ComponentGenerator::new(registry)
+            .generate_page_code(&page)
+            .unwrap();
+
+        assert_code_contains(
+            &code,
+            "const { data: requestConfigData } = useRequestConfig();",
+        );
+        assert_code_contains(&code, "const url = requestConfigData?.url ?? undefined;");
+        assert_code_contains(
+            &code,
+            "const headers = requestConfigData?.headers ?? undefined;",
+        );
+        assert_code_not_contains(&code, "requestConfig?.data");
     }
 
     #[test]

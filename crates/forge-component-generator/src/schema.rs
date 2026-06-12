@@ -483,15 +483,8 @@ mod tests {
                 "meta": { "id": "sample", "name": "Sample" },
                 "root": {
                     "id": "root",
-                    "type": "Layout",
-                    "props": { "TEXT": "Hello" },
-                    "children": [
-                        {
-                            "id": "child",
-                            "type": "Text",
-                            "props": { "TEXT": "World", "DEFAULT_VALUE": 1 }
-                        }
-                    ]
+                    "type": "Iframe",
+                    "props": { "FRAME_URL": "https://example.com/embed" }
                 },
                 "context": {}
             }))
@@ -507,8 +500,11 @@ mod tests {
                 "meta": { "id": "sample", "name": "Sample" },
                 "root": {
                     "id": "root",
-                    "type": "Layout",
-                    "props": { "TEXT": "Hello", "UNKNOWN": true }
+                    "type": "Iframe",
+                    "props": {
+                        "FRAME_URL": "https://example.com/embed",
+                        "UNKNOWN": true
+                    }
                 },
                 "context": {}
             }))

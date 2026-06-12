@@ -183,15 +183,8 @@ mod tests {
                         "root": {
                             "id": "root",
                             "meta": { "scope": true, "title": "SamplePage" },
-                            "type": "Layout",
-                            "props": { "TEXT": "Hello" },
-                            "children": [
-                                {
-                                    "id": "child",
-                                    "type": "Text",
-                                    "props": { "TEXT": "World", "DEFAULT_VALUE": 1 }
-                                }
-                            ]
+                            "type": "Iframe",
+                            "props": { "FRAME_URL": "https://example.com/embed" }
                         },
                         "context": {}
                     }

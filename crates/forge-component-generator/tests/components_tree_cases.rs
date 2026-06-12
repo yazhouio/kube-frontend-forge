@@ -3,8 +3,8 @@ use forge_component_generator::{
     builtins::default_registry,
     registry::{
         DataSourceSource, DataSourceSourceGenerateCode, DataSourceSourceSchema, NodeSource,
-        NodeSourceGenerateCode, NodeSourceMeta, Registry, StatSource, StatementScope,
-        TemplateOutput,
+        NodeSourceGenerateCode, NodeSourceMeta, NodeSourceSchema, Registry, StatSource,
+        StatementScope, TemplateInput, TemplateOutput,
     },
     unwrap_page_schema,
     value::DataSourceActionMode,
@@ -58,10 +58,96 @@ fn generate_with_registry(case_name: &str, registry: Registry, tree: Value) -> S
     code
 }
 
+fn test_registry() -> Registry {
+    let mut registry = default_registry();
+    registry.register_node(
+        NodeSource::new(
+            "Layout",
+            NodeSourceGenerateCode {
+                imports: vec![r#"import * as React from "react""#],
+                jsx: Some(
+                    "<div className='layout'><__ENGINE_CHILDREN__ />\n    <div>{%%TEXT%%}</div></div>",
+                ),
+                meta: Some(NodeSourceMeta {
+                    input_paths: [("$jsx", vec!["TEXT"])].into_iter().collect(),
+                    runtime_deps: Vec::new(),
+                }),
+                ..NodeSourceGenerateCode::default()
+            },
+        )
+        .with_schema(NodeSourceSchema {
+            template_inputs: [(
+                "TEXT",
+                TemplateInput {
+                    ty: "string",
+                    description: "Layout text",
+                },
+            )]
+            .into_iter()
+            .collect(),
+            runtime_props: Default::default(),
+        }),
+    );
+    registry.register_node(
+        NodeSource::new(
+            "Text",
+            NodeSourceGenerateCode {
+                imports: vec![
+                    r#"import * as React from "react""#,
+                    r#"import { useState } from "react""#,
+                ],
+                stats: vec![StatSource {
+                    id: "textState",
+                    scope: StatementScope::FunctionBody,
+                    code: "const [text, setText] = useState(%%DEFAULT_VALUE%%);",
+                    output: vec!["text", "setText"],
+                    depends: vec![],
+                }],
+                jsx: Some("<div>{%%TEXT%%}</div>"),
+                meta: Some(NodeSourceMeta {
+                    input_paths: [("textState", vec!["DEFAULT_VALUE"]), ("$jsx", vec!["TEXT"])]
+                        .into_iter()
+                        .collect(),
+                    runtime_deps: Vec::new(),
+                }),
+            },
+        )
+        .with_schema(NodeSourceSchema {
+            template_inputs: [
+                (
+                    "TEXT",
+                    TemplateInput {
+                        ty: "string",
+                        description: "Text content",
+                    },
+                ),
+                (
+                    "DEFAULT_VALUE",
+                    TemplateInput {
+                        ty: "number",
+                        description: "Initial numeric state",
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            runtime_props: Default::default(),
+        }),
+    );
+    registry
+}
+
 #[test]
 fn built_in_components_tree_matrix_generates_valid_tsx() {
+    #[derive(Clone, Copy)]
+    enum CaseRegistry {
+        Default,
+        TestFixture,
+    }
+
     struct Case {
         name: &'static str,
+        registry: CaseRegistry,
         tree: Value,
         required: &'static [&'static str],
     }
@@ -69,6 +155,7 @@ fn built_in_components_tree_matrix_generates_valid_tsx() {
     let cases = vec![
         Case {
             name: "layout_only",
+            registry: CaseRegistry::TestFixture,
             tree: serde_json::json!({
               "meta": { "id": "layout-only", "name": "LayoutOnly", "path": "/layout-only" },
               "root": {
@@ -83,6 +170,7 @@ fn built_in_components_tree_matrix_generates_valid_tsx() {
         },
         Case {
             name: "deep_inline_layout_and_text",
+            registry: CaseRegistry::TestFixture,
             tree: serde_json::json!({
               "meta": { "id": "deep-inline", "name": "DeepInline", "path": "/deep-inline" },
               "root": {
@@ -116,6 +204,7 @@ fn built_in_components_tree_matrix_generates_valid_tsx() {
         },
         Case {
             name: "scoped_text_child",
+            registry: CaseRegistry::TestFixture,
             tree: serde_json::json!({
               "meta": { "id": "scoped-text", "name": "ScopedText", "path": "/scoped-text" },
               "root": {
@@ -143,6 +232,7 @@ fn built_in_components_tree_matrix_generates_valid_tsx() {
         },
         Case {
             name: "iframe_child",
+            registry: CaseRegistry::TestFixture,
             tree: serde_json::json!({
               "meta": { "id": "iframe-page", "name": "IframePage", "path": "/iframe" },
               "root": {
@@ -167,6 +257,7 @@ fn built_in_components_tree_matrix_generates_valid_tsx() {
         },
         Case {
             name: "rest_binding_to_text",
+            registry: CaseRegistry::TestFixture,
             tree: serde_json::json!({
               "meta": { "id": "rest-binding", "name": "RestBinding", "path": "/rest-binding" },
               "dataSources": [
@@ -210,6 +301,7 @@ fn built_in_components_tree_matrix_generates_valid_tsx() {
         },
         Case {
             name: "cluster_crd_table",
+            registry: CaseRegistry::Default,
             tree: crd_table_case("cluster-widgets", "crd-page-state"),
             required: &[
                 "function WidgetTable",
@@ -220,6 +312,7 @@ fn built_in_components_tree_matrix_generates_valid_tsx() {
         },
         Case {
             name: "workspace_crd_table",
+            registry: CaseRegistry::Default,
             tree: crd_table_case("workspace-widgets", "workspace-crd-page-state"),
             required: &[
                 "function WidgetTable",
@@ -231,7 +324,12 @@ fn built_in_components_tree_matrix_generates_valid_tsx() {
     ];
 
     for case in cases {
-        let code = generate_default_case(case.name, case.tree);
+        let code = match case.registry {
+            CaseRegistry::Default => generate_default_case(case.name, case.tree),
+            CaseRegistry::TestFixture => {
+                generate_with_registry(case.name, test_registry(), case.tree)
+            }
+        };
         for expected in case.required {
             assert_code_contains(case.name, &code, expected);
         }

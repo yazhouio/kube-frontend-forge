@@ -12,20 +12,24 @@ use crate::value::{DataSourceActionMode, DataSourceCallMode};
 
 const NODE_SOURCE_JSON: &[(&str, &str)] = &[
     (
-        "layout.json",
-        include_str!("../sources/node-sources/layout.json"),
-    ),
-    (
-        "text.json",
-        include_str!("../sources/node-sources/text.json"),
-    ),
-    (
         "iframe.json",
         include_str!("../sources/node-sources/iframe.json"),
     ),
     (
         "crd-table.json",
         include_str!("../sources/node-sources/crd-table.json"),
+    ),
+];
+
+#[cfg(test)]
+const TEST_NODE_SOURCE_JSON: &[(&str, &str)] = &[
+    (
+        "layout.json",
+        include_str!("../sources/node-sources/layout.json"),
+    ),
+    (
+        "text.json",
+        include_str!("../sources/node-sources/text.json"),
     ),
 ];
 
@@ -59,6 +63,15 @@ pub fn default_registry() -> Registry {
     }
     for (label, raw) in DATA_SOURCE_SOURCE_JSON {
         registry.register_data_source(parse_data_source_source(label, raw));
+    }
+    registry
+}
+
+#[cfg(test)]
+pub(crate) fn test_registry() -> Registry {
+    let mut registry = default_registry();
+    for (label, raw) in TEST_NODE_SOURCE_JSON {
+        registry.register_node(parse_node_source(label, raw));
     }
     registry
 }
@@ -387,7 +400,9 @@ mod tests {
     use jsonschema::validator_for;
     use serde_json::Value;
 
-    use super::{DATA_SOURCE_SOURCE_JSON, NODE_SOURCE_JSON};
+    use super::{
+        DATA_SOURCE_SOURCE_JSON, NODE_SOURCE_JSON, TEST_NODE_SOURCE_JSON, default_registry,
+    };
     use crate::schema::{data_source_source_schema, node_source_schema};
 
     #[test]
@@ -395,12 +410,20 @@ mod tests {
         let schema = node_source_schema();
         let validator = validator_for(&schema).unwrap();
 
-        for (label, raw) in NODE_SOURCE_JSON {
+        for (label, raw) in NODE_SOURCE_JSON.iter().chain(TEST_NODE_SOURCE_JSON) {
             let value = serde_json::from_str::<Value>(raw).unwrap();
             validator
                 .validate(&value)
                 .unwrap_or_else(|err| panic!("{label} does not match node-source schema: {err}"));
         }
+    }
+
+    #[test]
+    fn default_registry_excludes_test_fixture_node_sources() {
+        let registry = default_registry();
+
+        assert!(registry.node("Layout").is_err());
+        assert!(registry.node("Text").is_err());
     }
 
     #[test]

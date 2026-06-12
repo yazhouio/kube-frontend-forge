@@ -767,6 +767,14 @@ mod tests {
         }
     }
 
+    fn test_registry() -> Registry {
+        crate::builtins::test_registry()
+    }
+
+    fn test_generator() -> ComponentGenerator {
+        ComponentGenerator::new(test_registry())
+    }
+
     #[test]
     fn generates_basic_page() {
         let raw = serde_json::json!({
@@ -785,9 +793,7 @@ mod tests {
           }
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let code = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap();
+        let code = test_generator().generate_page_code(&page).unwrap();
         assert_code_contains(&code, "import { useState } from \"react\";");
         assert_code_contains(&code, "function SamplePage");
         assert_code_contains(&code, "const [text, setText] = useState(1);");
@@ -815,10 +821,9 @@ mod tests {
           }
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let code =
-            ComponentGenerator::with_backend(crate::builtins::default_registry(), OxcCodeBackend)
-                .generate_page_code(&page)
-                .unwrap();
+        let code = ComponentGenerator::with_backend(test_registry(), OxcCodeBackend)
+            .generate_page_code(&page)
+            .unwrap();
         assert_code_contains(&code, "import { useState } from \"react\"");
         assert_code_contains(&code, "function SamplePage");
         assert_code_contains(&code, "const [text, setText] = useState(1)");
@@ -843,16 +848,14 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let code = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap();
+        let code = test_generator().generate_page_code(&page).unwrap();
         assert_code_contains(&code, "const [text, setText] = useState(1);");
         assert_code_contains(&code, "const [text2, setText2] = useState(2);");
     }
 
     #[test]
     fn renames_inline_child_jsx_when_stat_outputs_collide() {
-        let mut registry = crate::builtins::default_registry();
+        let mut registry = test_registry();
         registry.register_node(NodeSource::new(
             "LabelStat",
             NodeSourceGenerateCode {
@@ -1156,9 +1159,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let code = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap();
+        let code = test_generator().generate_page_code(&page).unwrap();
         assert_code_contains(&code, "const useCols = ()=>");
         assert_code_contains(&code, "const { columns: colsColumns } = useCols();");
         assert_code_not_contains(&code, "useUnused");
@@ -1194,9 +1195,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let code = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap();
+        let code = test_generator().generate_page_code(&page).unwrap();
         assert_code_contains(
             &code,
             "const { pageContext: pageStatePageContext } = usePageState();",
@@ -1234,9 +1233,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let code = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap();
+        let code = test_generator().generate_page_code(&page).unwrap();
         assert_code_contains(&code, "const useWorkspaceProjectSelectHook = useMemo(");
         assert_code_contains(&code, "pageContext?.useWorkspaceProjectSelect");
         assert_code_contains(&code, "enabled: Boolean(namespace)");
@@ -1281,9 +1278,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let code = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap();
+        let code = test_generator().generate_page_code(&page).unwrap();
         assert_code_contains(&code, "const useCustomColumns = ()=>");
         assert_code_contains(
             &code,
@@ -1294,7 +1289,7 @@ mod tests {
 
     #[test]
     fn renders_data_source_scopes_in_target_boundary() {
-        let mut registry = crate::builtins::default_registry();
+        let mut registry = test_registry();
         registry.register_data_source(
             DataSourceSource::new(
                 "scoped-source",
@@ -1424,9 +1419,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let code = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap();
+        let code = test_generator().generate_page_code(&page).unwrap();
         let rows_pos = find_code(&code, "useRows();").unwrap();
         let cols_pos = find_code(&code, "useCols(rowsData ?? undefined);").unwrap();
         assert!(rows_pos < cols_pos);
@@ -1495,9 +1488,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let code = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap();
+        let code = test_generator().generate_page_code(&page).unwrap();
         assert_code_contains(&code, "const useStore = getCrdStore({");
         assert_code_contains(&code, "const useStore2 = getCrdStore({");
         assert_code_contains(&code, "const store = useStore({");
@@ -1659,7 +1650,7 @@ mod tests {
 
     #[test]
     fn reports_ambiguous_binding_source_without_target() {
-        let mut registry = crate::builtins::default_registry();
+        let mut registry = test_registry();
         registry.register_node(NodeSource::new(
             "Label",
             NodeSourceGenerateCode {
@@ -1725,9 +1716,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let err = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap_err();
+        let err = test_generator().generate_page_code(&page).unwrap_err();
         assert!(err.to_string().contains("node root (Text)"));
         assert!(error_chain_contains(&err, |err| matches!(
             err,
@@ -1748,9 +1737,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let err = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap_err();
+        let err = test_generator().generate_page_code(&page).unwrap_err();
         assert!(error_chain_contains(&err, |err| matches!(
             err,
             Error::UnknownProp { .. }
@@ -1759,7 +1746,7 @@ mod tests {
 
     #[test]
     fn passes_runtime_props_to_scoped_children() {
-        let mut registry = crate::builtins::default_registry();
+        let mut registry = test_registry();
         registry.register_node(
             NodeSource::new(
                 "PropCard",
@@ -1823,7 +1810,7 @@ mod tests {
 
     #[test]
     fn runtime_prop_bindings_are_resolved_in_parent_boundary() {
-        let mut registry = crate::builtins::default_registry();
+        let mut registry = test_registry();
         registry.register_node(
             NodeSource::new(
                 "PropCard",
@@ -1925,7 +1912,7 @@ mod tests {
 
     #[test]
     fn action_graph_call_data_source_requires_mutate_binding() {
-        let mut registry = crate::builtins::default_registry();
+        let mut registry = test_registry();
         registry.register_node(NodeSource::new(
             "Button",
             NodeSourceGenerateCode {
@@ -1982,7 +1969,7 @@ mod tests {
 
     #[test]
     fn action_graph_call_rest_data_source_uses_request_mode() {
-        let mut registry = crate::builtins::default_registry();
+        let mut registry = test_registry();
         registry.register_node(NodeSource::new(
             "Button",
             NodeSourceGenerateCode {
@@ -2052,7 +2039,7 @@ mod tests {
 
     #[test]
     fn action_graph_rest_config_bindings_use_active_binding_context() {
-        let mut registry = crate::builtins::default_registry();
+        let mut registry = test_registry();
         registry.register_node(NodeSource::new(
             "Button",
             NodeSourceGenerateCode {
@@ -2139,7 +2126,7 @@ mod tests {
 
     #[test]
     fn action_graph_call_static_data_source_uses_set_mode() {
-        let mut registry = crate::builtins::default_registry();
+        let mut registry = test_registry();
         registry.register_node(NodeSource::new(
             "Button",
             NodeSourceGenerateCode {
@@ -2220,9 +2207,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let err = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap_err();
+        let err = test_generator().generate_page_code(&page).unwrap_err();
         assert!(matches!(
             err,
             Error::ActionGraphTargetNodeNotFound {
@@ -2259,9 +2244,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let err = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap_err();
+        let err = test_generator().generate_page_code(&page).unwrap_err();
         assert!(matches!(
             err,
             Error::ActionGraphDataSourceNotFound {
@@ -2274,7 +2257,7 @@ mod tests {
 
     #[test]
     fn action_graph_uses_data_source_declared_action_mode() {
-        let mut registry = crate::builtins::default_registry();
+        let mut registry = test_registry();
         registry.register_node(NodeSource::new(
             "Button",
             NodeSourceGenerateCode {
@@ -2501,9 +2484,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let code = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap();
+        let code = test_generator().generate_page_code(&page).unwrap();
         assert_code_contains(
             &code,
             r#"import { useRuntimeContext } from "@frontend-forge/forge-components";"#,
@@ -2556,9 +2537,7 @@ mod tests {
           "context": {}
         });
         let page = unwrap_page_schema(raw).unwrap();
-        let code = ComponentGenerator::default()
-            .generate_page_code(&page)
-            .unwrap();
+        let code = test_generator().generate_page_code(&page).unwrap();
 
         let runtime_pos = find_code(&code, "const __runtime__ = useRuntimeContext();").unwrap();
         let cols_pos = find_code(

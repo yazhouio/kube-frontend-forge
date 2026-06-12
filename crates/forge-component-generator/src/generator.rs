@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Instant};
 
 use indexmap::{IndexMap, IndexSet};
 
@@ -53,6 +53,16 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
     }
 
     pub fn generate_page_code(&self, page: &PageConfig) -> Result<String> {
+        let started = Instant::now();
+        tracing::info!(
+            page_id = %page.meta.id,
+            page_name = %page.meta.name,
+            root_node_id = %page.root.id,
+            root_node_type = %page.root.ty,
+            data_source_count = page.data_sources.len(),
+            action_graph_count = page.action_graphs.len(),
+            "generating page component code"
+        );
         let action_graphs = ActionGraphPlan::new(&page.action_graphs)?;
         let mut bindings = self.build_binding_context(page)?;
         action_graphs.add_to_binding_context(&mut bindings);
@@ -85,11 +95,21 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
             &action_graphs,
         )?;
 
-        self.backend.emit_module(
-            &ctx.imports.emit_sources(),
-            &ctx.module_items,
-            Some(&root_name),
-        )
+        let imports = ctx.imports.emit_sources();
+        let module_item_count = ctx.module_items.len();
+        let code = self
+            .backend
+            .emit_module(&imports, &ctx.module_items, Some(&root_name))?;
+        tracing::info!(
+            page_id = %page.meta.id,
+            page_name = %page.meta.name,
+            root_component = %root_name,
+            import_count = imports.len(),
+            module_item_count = module_item_count,
+            elapsed_ms = elapsed_ms(started),
+            "generated page component code"
+        );
+        Ok(code)
     }
 
     fn render_boundary_node(
@@ -101,6 +121,14 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
         data_sources_by_id: &BTreeMap<&str, &DataSourceNode>,
         action_graphs: &ActionGraphPlan,
     ) -> Result<String> {
+        let started = Instant::now();
+        tracing::debug!(
+            node_id = %node.id,
+            node_type = %node.ty,
+            child_count = node.children.len(),
+            preferred_name = ?preferred_name,
+            "rendering boundary node"
+        );
         let fragment = self.render_fragment(
             node,
             ctx,
@@ -146,6 +174,16 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
             jsx
         );
         ctx.module_items.push(function_code);
+        tracing::debug!(
+            node_id = %node.id,
+            node_type = %node.ty,
+            component_name = %component_name,
+            binding_use_count = binding_uses.len(),
+            action_graph_count = fragment.action_graph_ids.len(),
+            local_stat_count = local_render_stats.len(),
+            elapsed_ms = elapsed_ms(started),
+            "rendered boundary node"
+        );
         Ok(component_name)
     }
 
@@ -157,6 +195,14 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
         data_sources_by_id: &BTreeMap<&str, &DataSourceNode>,
         action_graphs: &ActionGraphPlan,
     ) -> Result<RenderedFragment> {
+        let started = Instant::now();
+        tracing::debug!(
+            node_id = %node.id,
+            node_type = %node.ty,
+            child_count = node.children.len(),
+            scoped = node.meta.as_ref().is_some_and(|meta| meta.scope),
+            "rendering component node"
+        );
         let mut stats = Vec::<RenderedStat>::new();
         let mut binding_uses = Vec::<BindingUse>::new();
         let mut action_graph_ids = IndexSet::<String>::new();
@@ -191,6 +237,13 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
 
         let mut render_node = node.clone();
         for handler in action_graphs.handlers_for_node(&node.id) {
+            tracing::debug!(
+                node_id = %node.id,
+                node_type = %node.ty,
+                action_graph_id = %handler.graph_id,
+                prop_name = %handler.prop_name,
+                "binding action graph handler to node"
+            );
             render_node
                 .props
                 .entry(handler.prop_name.clone())
@@ -236,6 +289,15 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
                 action_graph_ids.insert(source.clone());
             }
         }
+        tracing::debug!(
+            node_id = %node.id,
+            node_type = %node.ty,
+            stat_count = own_stats.len(),
+            binding_use_count = binding_uses.len(),
+            action_graph_count = action_graph_ids.len(),
+            elapsed_ms = elapsed_ms(started),
+            "rendered component node"
+        );
         Ok(RenderedFragment {
             jsx: rendered.jsx,
             stats: own_stats,
@@ -259,6 +321,10 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
         let mut stats = Vec::new();
         for source_id in source_ids {
             if ctx.rendered_data_sources.contains(&source_id) {
+                tracing::debug!(
+                    data_source_id = %source_id,
+                    "skipping already rendered data source"
+                );
                 continue;
             }
             let data_source = data_sources_by_id.get(source_id.as_str()).ok_or_else(|| {
@@ -266,6 +332,11 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
                     id: source_id.clone(),
                 }
             })?;
+            tracing::debug!(
+                data_source_id = %data_source.id,
+                data_source_type = %data_source.ty,
+                "rendering used data source"
+            );
             stats.extend(
                 self.registry
                     .data_source(&data_source.ty)
@@ -282,6 +353,11 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
                     })?,
             );
             ctx.rendered_data_sources.insert(source_id);
+            tracing::debug!(
+                data_source_id = %data_source.id,
+                data_source_type = %data_source.ty,
+                "rendered used data source"
+            );
         }
 
         Ok(stats)
@@ -293,6 +369,12 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
         children: Vec<String>,
         ctx: &mut RenderContext,
     ) -> Result<crate::registry::NodeRender> {
+        tracing::trace!(
+            node_id = %node.id,
+            node_type = %node.ty,
+            child_count = children.len(),
+            "rendering node definition"
+        );
         self.registry
             .node(&node.ty)
             .and_then(|definition| definition.render(node, children, ctx))
@@ -367,6 +449,11 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
     }
 
     fn build_binding_context(&self, page: &PageConfig) -> Result<BindingContext> {
+        tracing::debug!(
+            page_id = %page.meta.id,
+            data_source_count = page.data_sources.len(),
+            "building component binding context"
+        );
         let mut ctx = BindingContext::default();
         for data_source in &page.data_sources {
             let definition = self
@@ -408,6 +495,17 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
                     arg_binding_uses: Vec::new(),
                 },
             );
+            if let Some(info) = ctx.data_sources.get(&data_source.id) {
+                tracing::debug!(
+                    page_id = %page.meta.id,
+                    data_source_id = %data_source.id,
+                    data_source_type = %data_source.ty,
+                    output_count = info.output_names.len(),
+                    call_mode = ?info.call_mode,
+                    action_mode = ?info.action_mode,
+                    "registered data source binding"
+                );
+            }
         }
         for data_source in &page.data_sources {
             let args = data_source
@@ -423,6 +521,13 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
             if let Some(info) = ctx.data_sources.get_mut(&data_source.id) {
                 info.args = args;
                 info.arg_binding_uses = arg_binding_uses;
+                tracing::debug!(
+                    page_id = %page.meta.id,
+                    data_source_id = %data_source.id,
+                    arg_count = info.args.len(),
+                    arg_binding_use_count = info.arg_binding_uses.len(),
+                    "resolved data source args"
+                );
             }
         }
         Ok(ctx)
@@ -615,6 +720,10 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
             }
         }
     }
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 struct RenderedFragment {

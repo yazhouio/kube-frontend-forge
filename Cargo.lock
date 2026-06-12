@@ -436,6 +436,7 @@ dependencies = [
  "swc_ecma_codegen",
  "swc_ecma_parser",
  "swc_ecma_visit",
+ "tracing",
 ]
 
 [[package]]
@@ -488,6 +489,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snafu",
+ "tracing",
 ]
 
 [[package]]

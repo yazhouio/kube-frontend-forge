@@ -65,8 +65,11 @@ async fn main() {
 }
 
 fn init_logging() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("frontend_forge_server=info,tower_http=info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(
+            "frontend_forge_server=info,tower_http=info,forge_project_generator=info,forge_component_generator=info",
+        )
+    });
     fmt().with_env_filter(filter).init();
 }
 

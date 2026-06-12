@@ -29,7 +29,7 @@ pub struct DataSourceBindingInfo {
     pub arg_binding_uses: Vec<BindingUse>,
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DataSourceCallMode {
     #[default]
     Hook,

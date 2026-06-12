@@ -41,6 +41,7 @@ struct ActionGraphInfo {
 
 impl ActionGraphPlan {
     pub fn new(graphs: &[ActionGraphSchema]) -> Result<Self> {
+        tracing::debug!(graph_count = graphs.len(), "planning action graphs");
         let mut plan = Self::default();
         for graph in graphs {
             plan.graphs.insert(graph.id.clone(), graph.clone());
@@ -51,6 +52,13 @@ impl ActionGraphPlan {
         for graph in graphs {
             for (action_id, action) in &graph.actions {
                 let (node_id, event_name) = parse_trigger(&graph.id, &action.on)?;
+                tracing::debug!(
+                    action_graph_id = %graph.id,
+                    action_id = %action_id,
+                    target_node_id = %node_id,
+                    event_name = %event_name,
+                    "planned action graph trigger"
+                );
                 let info = plan
                     .info
                     .get(&graph.id)
@@ -72,6 +80,13 @@ impl ActionGraphPlan {
             }
         }
 
+        let handler_count = plan.handlers_by_node.values().map(Vec::len).sum::<usize>();
+        tracing::debug!(
+            graph_count = plan.graphs.len(),
+            target_node_count = plan.handlers_by_node.len(),
+            handler_count = handler_count,
+            "planned action graphs"
+        );
         Ok(plan)
     }
 
@@ -95,6 +110,12 @@ impl ActionGraphPlan {
     }
 
     pub fn validate(&self, root: &ComponentNode, bindings: &BindingContext) -> Result<()> {
+        tracing::debug!(
+            graph_count = self.graphs.len(),
+            root_node_id = %root.id,
+            root_node_type = %root.ty,
+            "validating action graphs"
+        );
         let node_ids = collect_node_ids(root);
         for (graph_id, graph) in &self.graphs {
             for (action_id, action) in &graph.actions {
@@ -127,6 +148,7 @@ impl ActionGraphPlan {
                 }
             }
         }
+        tracing::debug!(graph_count = self.graphs.len(), "validated action graphs");
         Ok(())
     }
 
@@ -201,6 +223,12 @@ impl ActionGraphPlan {
                 .ok_or_else(|| Error::ActionGraphNotFound {
                     id: graph_id.clone(),
                 })?;
+            tracing::debug!(
+                action_graph_id = %graph_id,
+                action_count = graph.actions.len(),
+                store_already_rendered = ctx.rendered_action_graph_stores.contains(graph_id),
+                "rendering action graph boundary stats"
+            );
             if !ctx.rendered_action_graph_stores.contains(graph_id) {
                 let store_code = build_store_code(graph, info)?;
                 ctx.module_items.push(store_code);

@@ -6,6 +6,7 @@ mod types;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::LazyLock,
+    time::Instant,
 };
 
 use include_dir::{Dir, include_dir};
@@ -63,6 +64,16 @@ pub fn generate_project_files<R>(
 where
     R: Fn(&PageMeta, &ExtensionManifest) -> Result<String>,
 {
+    let started = Instant::now();
+    tracing::info!(
+        manifest_name = %manifest.name,
+        manifest_version = %manifest.version,
+        page_count = manifest.pages.len(),
+        route_count = manifest.routes.len(),
+        menu_count = manifest.menus.len(),
+        locale_count = manifest.locales.len(),
+        "generating project files"
+    );
     validate_manifest(manifest)?;
     let normalized = normalize_manifest(manifest);
 
@@ -128,9 +139,18 @@ where
         ),
     });
 
+    let warnings = warnings_for(options);
+    tracing::info!(
+        manifest_name = %normalized.name,
+        file_count = out.len(),
+        warning_count = warnings.len(),
+        elapsed_ms = elapsed_ms(started),
+        "generated project files"
+    );
+
     Ok(GenerateProjectFilesResult {
         files: out,
-        warnings: warnings_for(options),
+        warnings,
     })
 }
 
@@ -138,6 +158,7 @@ fn render_rollup_configs(
     scaffold: &BTreeMap<String, String>,
     out: &mut Vec<VirtualFile>,
 ) -> Result<()> {
+    tracing::debug!("rendering rollup configs");
     let replacements = BTreeMap::from([(
         "EXTERNAL_PACKAGES".to_owned(),
         serde_json::to_string_pretty(&runtime_contract::EXTERNAL_PACKAGES)
@@ -315,6 +336,13 @@ fn render_routes(
     } else {
         return Err(Error::ScaffoldRoutesTemplateNotFound);
     };
+    tracing::debug!(
+        manifest_name = %manifest.name,
+        template_path = %template_path,
+        route_count = manifest.routes.len(),
+        page_count = manifest.pages.len(),
+        "rendering routes"
+    );
     let routes_tpl = required_template(scaffold, template_path)?;
 
     if template_path.ends_with(".tsx.tpl") {
@@ -421,6 +449,7 @@ fn render_locales(
     scaffold: &BTreeMap<String, String>,
     out: &mut Vec<VirtualFile>,
 ) -> Result<()> {
+    tracing::debug!(locale_count = locales.len(), "rendering locales");
     let locales_index_tpl = required_template(scaffold, "src/locales/index.ts.tpl")?;
     let mut locale_infos = Vec::<(String, String, String)>::new();
     let mut variable_names = BTreeSet::<String>::new();
@@ -499,6 +528,13 @@ where
         };
 
     for page in &manifest.pages {
+        let started = Instant::now();
+        tracing::debug!(
+            manifest_name = %manifest.name,
+            page_id = %page.id,
+            entry_component = %page.entry_component,
+            "rendering manifest page"
+        );
         let page_content = renderer(page, manifest)?;
         out.push(VirtualFile {
             path: normalize_rel_path(&format!("src/pages/{}/index.tsx", page.id))?,
@@ -519,8 +555,19 @@ where
             path: normalize_rel_path(&format!("src/pages/{}/{}", page.id, page_component_file))?,
             content,
         });
+        tracing::debug!(
+            manifest_name = %manifest.name,
+            page_id = %page.id,
+            entry_component = %page.entry_component,
+            elapsed_ms = elapsed_ms(started),
+            "rendered manifest page"
+        );
     }
     Ok(())
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 fn read_scaffold_default_locales(scaffold: &BTreeMap<String, String>) -> Result<Vec<LocaleMeta>> {

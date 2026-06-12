@@ -25,7 +25,12 @@ use forge_project_generator::{ExtensionManifest, VirtualFile, unwrap_manifest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tempfile::TempDir;
-use tower_http::services::ServeDir;
+use tower_http::{
+    services::ServeDir,
+    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
+};
+use tracing::Level;
+use tracing_subscriber::{EnvFilter, fmt};
 
 mod systemjs_validator;
 
@@ -52,10 +57,20 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
 
 #[tokio::main]
 async fn main() {
+    init_logging();
     if let Err(error) = run().await {
-        eprintln!("{error}");
+        tracing::error!("{error}");
         std::process::exit(1);
     }
+}
+
+fn init_logging() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(
+            "frontend_forge_server=info,tower_http=info,forge_project_generator=info,forge_component_generator=info",
+        )
+    });
+    let _ = fmt().with_env_filter(filter).try_init();
 }
 
 async fn run() -> Result<()> {
@@ -64,7 +79,7 @@ async fn run() -> Result<()> {
     let addr = parse_bind_addr(&config.addr)?;
     let app = build_router(config)?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    println!("frontend-forge-server listening on http://{addr}");
+    tracing::info!("frontend-forge-server listening on http://{addr}");
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -83,7 +98,11 @@ fn build_router(config: ServerConfig) -> Result<Router> {
         app = app.nest_service(&prefix, ServeDir::new(route.root));
     }
 
-    Ok(app.with_state(state))
+    Ok(app.with_state(state).layer(
+        TraceLayer::new_for_http()
+            .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+            .on_response(DefaultOnResponse::new().level(Level::INFO)),
+    ))
 }
 
 fn parse_server_options() -> Result<ServerOptions> {

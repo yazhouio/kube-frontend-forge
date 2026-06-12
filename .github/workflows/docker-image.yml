@@ -46,6 +46,8 @@ jobs:
           platforms: ${{ env.DOCKER_PR_PLATFORMS }}
           push: false
           tags: ${{ matrix.image }}:pr-${{ github.event.pull_request.number }}-${{ matrix.variant }}
+          cache-from: type=gha,scope=frontend-forge-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=frontend-forge-${{ matrix.target }}
           secrets: |
             npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}
 
@@ -109,6 +111,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=frontend-forge-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=frontend-forge-${{ matrix.target }}
           secrets: |
             npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}
 
@@ -168,5 +172,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=frontend-forge-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=frontend-forge-${{ matrix.target }}
           secrets: |
             npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}

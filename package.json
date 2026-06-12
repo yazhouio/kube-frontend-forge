@@ -2,8 +2,14 @@
   "name": "frontend-forge-monorepo",
   "private": true,
   "packageManager": "pnpm@11.1.0",
+  "scripts": {
+    "prepare": "node scripts/install-lefthook.mjs"
+  },
   "workspaces": [
-    "apps/*",
-    "packages/*"
-  ]
+    "crates/forge-job",
+    "packages/forge-components"
+  ],
+  "devDependencies": {
+    "lefthook": "2.1.9"
+  }
 }

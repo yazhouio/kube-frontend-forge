@@ -121,7 +121,7 @@ function extractColumnIds<T>(columns: ColumnDef<T>[]): Set<string> {
   const ids = new Set<string>();
 
   const visit = (defs: Array<ColumnDef<any>>) => {
-    defs.forEach((def) => {
+    defs?.forEach((def) => {
       const anyDef = def as any;
       if (Array.isArray(anyDef.columns)) {
         visit(anyDef.columns);

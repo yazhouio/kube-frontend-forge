@@ -1,0 +1,33 @@
+[package]
+name = "forge-job"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "frontend-forge-job"
+path = "src/main.rs"
+
+[[bin]]
+name = "frontend-forge-server"
+path = "src/server.rs"
+
+[dependencies]
+axum.workspace = true
+figment.workspace = true
+flate2.workspace = true
+forge-core = { path = "../forge-core" }
+forge-project-generator = { path = "../forge-project-generator" }
+jsonschema.workspace = true
+oxc_allocator.workspace = true
+oxc_ast.workspace = true
+oxc_ast_visit.workspace = true
+oxc_parser.workspace = true
+oxc_span.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+snafu.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tower-http.workspace = true

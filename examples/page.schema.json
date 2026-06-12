@@ -1,0 +1,12 @@
+{
+  "pageSchema": {
+    "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+    "root": {
+      "id": "root",
+      "meta": { "scope": true, "title": "SamplePage" },
+      "type": "Iframe",
+      "props": { "FRAME_URL": "https://example.com/embed" }
+    },
+    "context": {}
+  }
+}

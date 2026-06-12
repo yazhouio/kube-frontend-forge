@@ -7,8 +7,8 @@ newClient/src/test.jsx
 **/.DS_Store
 .tmp
 **/tsconfig.tsbuildinfo
-packages/project-generator/tsconfig.tsbuildinfo
 
 **/AGENTS.md
 **/spec
 demo
+target

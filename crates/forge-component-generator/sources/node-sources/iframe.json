@@ -1,0 +1,24 @@
+{
+  "id": "Iframe",
+  "schema": {
+    "templateInputs": {
+      "FRAME_URL": {
+        "type": "string",
+        "description": "Iframe src url"
+      }
+    }
+  },
+  "generateCode": {
+    "imports": [
+      "import * as React from \"react\"",
+      "import { BaseIframe } from \"@frontend-forge/forge-components\""
+    ],
+    "jsx": "<BaseIframe src={%%FRAME_URL%%} />",
+    "stats": [],
+    "meta": {
+      "inputPaths": {
+        "$jsx": ["FRAME_URL"]
+      }
+    }
+  }
+}

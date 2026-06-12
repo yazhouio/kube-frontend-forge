@@ -1,0 +1,3 @@
+[[static]]
+root = "/app/server/v4dist"
+prefix = "/dist/frontend-forge/"

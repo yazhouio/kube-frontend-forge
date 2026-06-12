@@ -1,0 +1,21 @@
+{
+  "id": "Layout",
+  "schema": {
+    "templateInputs": {
+      "TEXT": {
+        "type": "string",
+        "description": "Layout text"
+      }
+    }
+  },
+  "generateCode": {
+    "imports": ["import * as React from \"react\""],
+    "jsx": "<div className='layout'><__ENGINE_CHILDREN__ />\n    <div>{%%TEXT%%}</div></div>",
+    "stats": [],
+    "meta": {
+      "inputPaths": {
+        "$jsx": ["TEXT"]
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+[workspace]
+members = [
+  "crates/forge-job",
+  "crates/forge-component-generator",
+  "crates/forge-core",
+  "crates/forge-project-generator",
+  "xtask",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "UNLICENSED"
+
+[workspace.dependencies]
+flate2 = "1.0"
+axum = "0.8"
+figment = { version = "0.10.19", features = ["env", "toml"] }
+git-conventional = "1.1"
+include_dir = "0.7"
+indexmap = "2.7"
+jsonschema = { version = "0.46.5", default-features = false }
+oxc_allocator = "0.134.0"
+oxc_ast = "0.134.0"
+oxc_ast_visit = "0.134.0"
+oxc_codegen = { version = "0.134.0", default-features = false }
+oxc_parser = "0.134.0"
+oxc_span = "0.134.0"
+regex = "1.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+snafu = "0.8"
+swc_common = "23.0.0"
+swc_ecma_ast = "25.0.0"
+swc_ecma_codegen = "28.0.0"
+swc_ecma_parser = "41.0.0"
+swc_ecma_visit = "25.0.0"
+tar = "0.4"
+tempfile = "3.10"
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "net"] }
+tower-http = { version = "0.6", features = ["fs"] }

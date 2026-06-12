@@ -1,0 +1,45 @@
+{
+  "manifest": {
+    "version": "1.0",
+    "name": "ff-test",
+    "routes": [{ "path": "/sample", "pageId": "SamplePage" },
+  {
+    "path": "/sample/:id",
+    "pageId": "SamplePage2"
+  }
+  ],
+    "menus": [],
+    "locales": [{ "lang": "en", "messages": { "HELLO": "Hello" } }],
+    "pages": [
+      {
+        "id": "SamplePage",
+        "entryComponent": "SamplePage",
+        "componentsTree": {
+          "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+          "root": {
+            "id": "root",
+            "meta": { "scope": true, "title": "SamplePage" },
+            "type": "Iframe",
+            "props": { "FRAME_URL": "https://example.com/embed" }
+          },
+          "context": {}
+        }
+      },
+      {
+          "id": "SamplePage2",
+          "entryComponent": "SamplePage2",
+          "componentsTree": {
+            "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+            "root": {
+              "id": "root",
+              "meta": { "scope": true, "title": "SamplePage2" },
+              "type": "Iframe",
+              "props": { "FRAME_URL": "https://example.com/sample/2" }
+            },
+            "context": {}
+          }
+      }
+    ],
+    "build": { "target": "kubesphere-extension", "moduleName": "ff-test", "systemjs": true }
+  }
+}

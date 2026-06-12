@@ -1,0 +1,46 @@
+{
+  "id": "crd-columns",
+  "schema": {
+    "templateInputs": {
+      "COLUMNS_CONFIG": {
+        "type": "array",
+        "description": "Columns config"
+      },
+      "HOOK_NAME": {
+        "type": "string",
+        "description": "Hook name"
+      }
+    },
+    "outputs": {
+      "columns": { "type": "array" }
+    }
+  },
+  "generateCode": {
+    "imports": [
+      "import { useMemo } from \"react\"",
+      "import { TableTd, useRuntimeContext } from \"@frontend-forge/forge-components\""
+    ],
+    "stats": [
+      {
+        "id": "columnsConfigDecl",
+        "scope": "moduleDecl",
+        "code": "const columnsConfig = %%COLUMNS_CONFIG%%;",
+        "output": ["columnsConfig"],
+        "depends": []
+      },
+      {
+        "id": "hookDecl",
+        "scope": "moduleDecl",
+        "code": "const %%HOOK_NAME%% = () => {\n  const runtime = useRuntimeContext();\n  const cap = runtime?.capabilities || {};\n  const t = cap.t ?? ((d) => d);\n  const columns = useMemo(\n    () =>\n      columnsConfig.map((column) => {\n        const { key, title, render, path, valueType, displayType, payload, emptyText, ...rest } = column;\n        const renderConfig = render ?? { path, valueType, displayType, payload, emptyText };\n        return {\n          accessorKey: key,\n          header: t(title),\n          cell: (info) => <TableTd meta={renderConfig} original={info.row.original} />,\n          ...rest,\n        };\n      }),\n    [columnsConfig],\n  );\n  return { columns };\n};",
+        "output": ["HOOK_NAME"],
+        "depends": []
+      }
+    ],
+    "meta": {
+      "inputPaths": {
+        "columnsConfigDecl": ["COLUMNS_CONFIG"],
+        "hookDecl": ["HOOK_NAME"]
+      }
+    }
+  }
+}

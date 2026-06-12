@@ -1,0 +1,33 @@
+[package]
+name = "forge-component-generator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+swc = [
+  "dep:swc_common",
+  "dep:swc_ecma_ast",
+  "dep:swc_ecma_codegen",
+  "dep:swc_ecma_parser",
+  "dep:swc_ecma_visit",
+]
+
+[dependencies]
+indexmap.workspace = true
+jsonschema.workspace = true
+oxc_allocator.workspace = true
+oxc_ast.workspace = true
+oxc_ast_visit.workspace = true
+oxc_codegen.workspace = true
+oxc_parser.workspace = true
+oxc_span.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+snafu.workspace = true
+swc_common = { workspace = true, optional = true }
+swc_ecma_ast = { workspace = true, optional = true }
+swc_ecma_codegen = { workspace = true, optional = true }
+swc_ecma_parser = { workspace = true, optional = true }
+swc_ecma_visit = { workspace = true, optional = true }

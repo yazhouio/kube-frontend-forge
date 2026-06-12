@@ -57,6 +57,8 @@ export const defaultCheckboxColumn = {
   ),
 } as const;
 
+const useNoopActions = () => () => null;
+
 function BasePageTable(props) {
   const {
     tableKey,
@@ -76,8 +78,13 @@ function BasePageTable(props) {
     fallbacks,
     ...rest
   } = props;
-  const { useItemActions, useBatchActions, useTableActions } = pageContext;
   const runtime = useRuntimeContext();
+  const resolvedPageContext = pageContext ?? runtime?.capabilities ?? {};
+  const {
+    useItemActions = useNoopActions,
+    useBatchActions = useNoopActions,
+    useTableActions = useNoopActions,
+  } = resolvedPageContext;
   const t = runtime?.capabilities?.t ?? ((d: string) => d);
   const tableRef = React.useRef<Table<Record<string, unknown>>>(null);
   const resolvedParams = params ?? {};

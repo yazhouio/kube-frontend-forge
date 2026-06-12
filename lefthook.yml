@@ -10,3 +10,7 @@ commit-msg:
   commands:
     commit-msg:
       run: cargo run -p xtask -- commit-msg {1}
+pre-push:
+  commands:
+    verify:
+      run: cargo run -p xtask -- verify

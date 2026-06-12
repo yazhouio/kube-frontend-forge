@@ -49,12 +49,12 @@ impl NameAllocator {
 
 pub fn sanitize_ident(value: &str) -> Result<String> {
     let mut out = String::new();
-    for (index, ch) in value.chars().enumerate() {
+    for ch in value.chars() {
         let valid = ch == '_' || ch == '$' || ch.is_ascii_alphanumeric();
         if !valid {
             continue;
         }
-        if index == 0 && ch.is_ascii_digit() {
+        if out.is_empty() && ch.is_ascii_digit() {
             out.push('_');
         }
         out.push(ch);
@@ -63,4 +63,16 @@ pub fn sanitize_ident(value: &str) -> Result<String> {
         return Err(Error::EmptyComponentName);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_ident;
+
+    #[test]
+    fn sanitize_ident_prefixes_first_valid_digit() {
+        assert_eq!(sanitize_ident("1abc").unwrap(), "_1abc");
+        assert_eq!(sanitize_ident("-1abc").unwrap(), "_1abc");
+        assert_eq!(sanitize_ident("--$value").unwrap(), "$value");
+    }
 }

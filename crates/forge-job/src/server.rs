@@ -23,7 +23,7 @@ use flate2::{Compression, write::GzEncoder};
 use forge_core::ForgeCore;
 use forge_project_generator::{ExtensionManifest, VirtualFile, unwrap_manifest};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tempfile::TempDir;
 use tower_http::services::ServeDir;
 
@@ -262,9 +262,9 @@ async fn schema_file(AxumPath(name): AxumPath<String>) -> Result<Response> {
 async fn project_files(
     State(state): State<AppState>,
     Json(value): Json<Value>,
-) -> Result<Json<Vec<VirtualFile>>> {
+) -> Result<Json<ApiSuccess<ProjectFilesPayload>>> {
     let files = spawn_blocking(move || create_project_files(&state, value)).await?;
-    Ok(Json(files))
+    Ok(Json(ApiSuccess::new(ProjectFilesPayload { files })))
 }
 
 async fn project_files_tar(
@@ -282,10 +282,10 @@ async fn project_files_tar(
 async fn project_build(
     State(state): State<AppState>,
     Json(value): Json<Value>,
-) -> Result<Json<Vec<VirtualFile>>> {
+) -> Result<Json<ApiSuccess<ProjectFilesPayload>>> {
     let files =
         spawn_blocking(move || build_project(&state, value).map(|result| result.files)).await?;
-    Ok(Json(files))
+    Ok(Json(ApiSuccess::new(ProjectFilesPayload { files })))
 }
 
 async fn project_build_tar(
@@ -634,6 +634,32 @@ struct BuildOutput {
     files: Vec<VirtualFile>,
 }
 
+#[derive(Debug, Serialize)]
+struct ApiSuccess<T> {
+    ok: bool,
+    #[serde(flatten)]
+    data: T,
+}
+
+impl<T> ApiSuccess<T> {
+    fn new(data: T) -> Self {
+        Self { ok: true, data }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectFilesPayload {
+    files: Vec<VirtualFile>,
+}
+
+#[derive(Debug, Serialize)]
+struct ApiErrorBody {
+    ok: bool,
+    error: String,
+    message: String,
+}
+
 #[derive(Debug)]
 struct ServerError {
     status: StatusCode,
@@ -673,7 +699,16 @@ impl std::error::Error for ServerError {}
 
 impl IntoResponse for ServerError {
     fn into_response(self) -> Response {
-        (self.status, Json(json!({ "error": self.message }))).into_response()
+        let message = self.message;
+        (
+            self.status,
+            Json(ApiErrorBody {
+                ok: false,
+                error: message.clone(),
+                message,
+            }),
+        )
+            .into_response()
     }
 }
 
@@ -705,7 +740,14 @@ impl From<tokio::task::JoinError> for ServerError {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{normalize_static_prefix, parse_server_config, parse_server_options_from};
+    use axum::{body::to_bytes, http::StatusCode, response::IntoResponse};
+    use forge_project_generator::VirtualFile;
+    use serde_json::json;
+
+    use super::{
+        ApiSuccess, ProjectFilesPayload, ServerError, normalize_static_prefix, parse_server_config,
+        parse_server_options_from,
+    };
 
     #[test]
     fn parses_static_server_config() {
@@ -773,5 +815,51 @@ addr = "0.0.0.0:3000"
         .expect("server config should parse");
 
         assert_eq!(config.addr, "0.0.0.0:3000");
+    }
+
+    #[test]
+    fn project_files_response_matches_legacy_node_shape() {
+        let response = ApiSuccess::new(ProjectFilesPayload {
+            files: vec![VirtualFile {
+                path: "src/index.ts".to_owned(),
+                content: "export {};".to_owned(),
+            }],
+        });
+
+        let value = serde_json::to_value(response).expect("response should serialize");
+
+        assert_eq!(
+            value,
+            json!({
+                "ok": true,
+                "files": [
+                    {
+                        "path": "src/index.ts",
+                        "content": "export {};"
+                    }
+                ]
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn server_error_response_matches_legacy_node_shape() {
+        let response = ServerError::bad_request("manifest is required").into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        let value: serde_json::Value =
+            serde_json::from_slice(&body).expect("response body should be JSON");
+
+        assert_eq!(
+            value,
+            json!({
+                "ok": false,
+                "error": "manifest is required",
+                "message": "manifest is required"
+            })
+        );
     }
 }

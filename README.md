@@ -73,8 +73,8 @@ cargo test --workspace --features swc
 Run a local full build with the sample manifest:
 
 ```bash
-FORGE_NODE_MODULES_DIR=/Users/yazhou/code/frontend-forge/crates/forge-job/node_modules \
-FORGE_ROLLUP_BIN=/Users/yazhou/code/frontend-forge/crates/forge-job/node_modules/.bin/rollup \
+FORGE_NODE_MODULES_DIR=$(pwd)/crates/forge-job/node_modules \
+FORGE_ROLLUP_BIN=$(pwd)/crates/forge-job/node_modules/.bin/rollup \
 FORGE_DEV_MODE=true \
 cargo run -p forge-job --bin frontend-forge-job -- build \
   --input examples/full.json \
@@ -124,7 +124,7 @@ Run the HTTP server with TOML config:
 
 ```bash
 docker run --rm -p 3000:3000 \
-  -v /Users/yazhou/code/frontend-forge/examples/server.toml:/config/server.toml:ro \
+  -v "$(pwd)/examples/server.toml:/config/server.toml:ro" \
   frontend-forge-server:prod \
   --config /config/server.toml
 ```
@@ -137,8 +137,8 @@ mkdir -p .tmp/full-flow/docker-input .tmp/full-flow/docker-out
 cp examples/full.json .tmp/full-flow/docker-input/manifest.json
 
 docker run --rm \
-  -v /Users/yazhou/code/frontend-forge/.tmp/full-flow/docker-input:/input:ro \
-  -v /Users/yazhou/code/frontend-forge/.tmp/full-flow/docker-out:/output \
+  -v "$(pwd)/.tmp/full-flow/docker-input:/input:ro" \
+  -v "$(pwd)/.tmp/full-flow/docker-out:/output" \
   frontend-forge-job:prod \
   build --input /input/manifest.json --out-dir /output --emit-project-archive true
 ```

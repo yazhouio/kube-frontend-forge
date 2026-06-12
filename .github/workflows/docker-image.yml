@@ -12,7 +12,6 @@ on:
 
 env:
   DOCKER_PR_PLATFORMS: linux/amd64
-  DOCKER_PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   build-pr-image:
@@ -51,13 +50,106 @@ jobs:
           secrets: |
             npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}
 
-  build-release-image:
-    name: Build and push release image (${{ matrix.image }}:${{ matrix.target }})
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
+  build-image-by-arch:
+    name: Build and push image (${{ matrix.image }}:${{ matrix.target }}:${{ matrix.arch }})
+    if: github.event_name == 'release' || github.event_name == 'push'
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: spike2044/frontend-forge-job
+            target: prod
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - image: spike2044/frontend-forge-job
+            target: dev
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - image: spike2044/frontend-forge-server
+            target: server-prod
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - image: spike2044/frontend-forge-server
+            target: server-dev
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - image: spike2044/frontend-forge-job
+            target: prod
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - image: spike2044/frontend-forge-job
+            target: dev
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - image: spike2044/frontend-forge-server
+            target: server-prod
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - image: spike2044/frontend-forge-server
+            target: server-dev
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build and push ${{ matrix.image }} by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: crates/forge-job/Dockerfile
+          target: ${{ matrix.target }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          outputs: type=image,name=${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=frontend-forge-${{ matrix.target }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=frontend-forge-${{ matrix.target }}-${{ matrix.arch }}
+          secrets: |
+            npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}
+
+      - name: Export digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p digests
+          echo "${{ steps.build.outputs.digest }}" > "digests/${{ matrix.target }}-${{ matrix.arch }}.txt"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: digest-${{ matrix.target }}-${{ matrix.arch }}
+          path: digests/*.txt
+
+  merge-manifests:
+    name: Merge multi-arch image (${{ matrix.image }}:${{ matrix.target }})
+    if: github.event_name == 'release' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: [build-image-by-arch]
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
       matrix:
         include:
           - image: spike2044/frontend-forge-job
@@ -77,12 +169,6 @@ jobs:
             tag_suffix: "-dev"
             latest_suffix: "-dev"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -98,81 +184,53 @@ jobs:
         with:
           images: ${{ matrix.image }}
           tags: |
-            type=raw,value=${{ github.event.release.tag_name }}${{ matrix.tag_suffix }}
-            type=raw,value=latest${{ matrix.latest_suffix }},enable=${{ github.event.release.prerelease == false }}
+            type=raw,value=${{ github.event.release.tag_name }}${{ matrix.tag_suffix }},enable=${{ github.event_name == 'release' }}
+            type=raw,value=latest${{ matrix.latest_suffix }},enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
+            type=ref,event=branch,suffix=${{ matrix.tag_suffix }},enable=${{ github.event_name == 'push' }}
+            type=sha,prefix={{branch}}-,suffix=${{ matrix.tag_suffix }},enable=${{ github.event_name == 'push' }}
 
-      - name: Build and push ${{ matrix.image }}
-        uses: docker/build-push-action@v6
+      - name: Download digest artifacts
+        uses: actions/download-artifact@v8
         with:
-          context: .
-          file: crates/forge-job/Dockerfile
-          target: ${{ matrix.target }}
-          platforms: ${{ env.DOCKER_PLATFORMS }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=frontend-forge-${{ matrix.target }}
-          cache-to: type=gha,mode=max,scope=frontend-forge-${{ matrix.target }}
-          secrets: |
-            npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}
+          pattern: digest-${{ matrix.target }}-*
+          path: digests
+          merge-multiple: true
 
-  build-branch-image:
-    name: Build and push branch image (${{ matrix.image }}:${{ matrix.target }})
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    strategy:
-      matrix:
-        include:
-          - image: spike2044/frontend-forge-job
-            target: prod
-            tag_suffix: ""
-          - image: spike2044/frontend-forge-job
-            target: dev
-            tag_suffix: "-dev"
-          - image: spike2044/frontend-forge-server
-            target: server-prod
-            tag_suffix: ""
-          - image: spike2044/frontend-forge-server
-            target: server-dev
-            tag_suffix: "-dev"
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - name: Create and push manifest
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+          amd_digest="$(cat "digests/${{ matrix.target }}-amd64.txt")"
+          arm_digest="$(cat "digests/${{ matrix.target }}-arm64.txt")"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+          tags=()
+          tag_args=()
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              tags+=("$tag")
+              tag_args+=("-t" "$tag")
+            fi
+          done <<< "${{ steps.meta.outputs.tags }}"
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          if [ "${#tag_args[@]}" -eq 0 ]; then
+            echo "metadata-action did not produce any tags" >&2
+            exit 1
+          fi
 
-      - name: Generate image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ matrix.image }}
-          tags: |
-            type=ref,event=branch,suffix=${{ matrix.tag_suffix }}
-            type=sha,prefix={{branch}}-,suffix=${{ matrix.tag_suffix }}
+          docker buildx imagetools create \
+            "${tag_args[@]}" \
+            "${{ matrix.image }}@${amd_digest}" \
+            "${{ matrix.image }}@${arm_digest}"
 
-      - name: Build and push ${{ matrix.image }}
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: crates/forge-job/Dockerfile
-          target: ${{ matrix.target }}
-          platforms: ${{ env.DOCKER_PLATFORMS }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=frontend-forge-${{ matrix.target }}
-          cache-to: type=gha,mode=max,scope=frontend-forge-${{ matrix.target }}
-          secrets: |
-            npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}
+          primary_tag="${tag_args[1]}"
+          image_digest="$(docker buildx imagetools inspect "$primary_tag" | sed -n 's/^Digest: //p' | head -n1)"
+          joined_tags="$(printf '%s<br>' "${tags[@]}")"
+          joined_tags="${joined_tags%<br>}"
+          {
+            echo "## Multi-platform image"
+            echo
+            echo "| Image | Target | Tags | Digest |"
+            echo "| --- | --- | --- | --- |"
+            echo "| ${{ matrix.image }} | ${{ matrix.target }} | ${joined_tags} | \`${image_digest}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

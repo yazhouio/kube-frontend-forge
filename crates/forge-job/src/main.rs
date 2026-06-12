@@ -17,6 +17,8 @@ use serde::Serialize;
 use snafu::Snafu;
 use tempfile::TempDir;
 
+mod systemjs_validator;
+
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 static MANIFEST_VALIDATOR: LazyLock<jsonschema::Validator> = LazyLock::new(|| {
@@ -256,10 +258,14 @@ fn validate_systemjs_dist(dist_dir: &Path) -> Result<()> {
     let mut has_system_register = false;
     for path in js_files {
         let content = fs::read_to_string(&path).context(ReadFileSnafu { path: path.clone() })?;
-        has_system_register = has_system_register || content.contains("System.register");
-        let executable_content = strip_js_comments(&content);
-        for token in ["__webpack_require__", "webpackChunk", "import("] {
-            if executable_content.contains(token) {
+        match systemjs_validator::validate_systemjs_code(&content) {
+            Ok(validation) => {
+                has_system_register = has_system_register || validation.has_system_register;
+            }
+            Err(systemjs_validator::SystemJsValidationError::Parse { message }) => {
+                return Err(Error::ParseJsOutput { path, message });
+            }
+            Err(systemjs_validator::SystemJsValidationError::ForbiddenToken { token }) => {
                 return Err(Error::ForbiddenJsToken { path, token });
             }
         }
@@ -270,49 +276,6 @@ fn validate_systemjs_dist(dist_dir: &Path) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn strip_js_comments(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        match ch {
-            '/' if chars.peek() == Some(&'/') => {
-                chars.next();
-                out.push(' ');
-                out.push(' ');
-                for comment_ch in chars.by_ref() {
-                    if comment_ch == '\n' {
-                        out.push('\n');
-                        break;
-                    }
-                    out.push(' ');
-                }
-            }
-            '/' if chars.peek() == Some(&'*') => {
-                chars.next();
-                out.push(' ');
-                out.push(' ');
-                while let Some(comment_ch) = chars.next() {
-                    if comment_ch == '*' && chars.peek() == Some(&'/') {
-                        chars.next();
-                        out.push(' ');
-                        out.push(' ');
-                        break;
-                    }
-                    if comment_ch == '\n' {
-                        out.push('\n');
-                    } else {
-                        out.push(' ');
-                    }
-                }
-            }
-            _ => out.push(ch),
-        }
-    }
-
-    out
 }
 
 fn read_manifest(path: &Path) -> Result<ExtensionManifest> {
@@ -1143,6 +1106,9 @@ enum Error {
     #[snafu(display("illegal output: missing System.register"))]
     MissingSystemRegister,
 
+    #[snafu(display("illegal output {} failed JavaScript parse: {message}", path.display()))]
+    ParseJsOutput { path: PathBuf, message: String },
+
     #[snafu(display("illegal output {} contains forbidden token `{token}`", path.display()))]
     ForbiddenJsToken { path: PathBuf, token: &'static str },
 
@@ -1323,15 +1289,5 @@ mod tests {
     fn rejects_path_traversal() {
         let error = normalize_rel_path("../index.js").unwrap_err().to_string();
         assert_eq!(error, "path traversal is not allowed: ../index.js");
-    }
-
-    #[test]
-    fn js_comment_import_type_does_not_count_as_dynamic_import() {
-        let stripped = strip_js_comments(
-            "System.register('x', [], function () {});\n/** @type {import('./types').Thing} */\nconst value = 1;",
-        );
-
-        assert!(stripped.contains("System.register"));
-        assert!(!stripped.contains("import("));
     }
 }

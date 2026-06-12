@@ -19,6 +19,11 @@ flate2.workspace = true
 forge-core = { path = "../forge-core" }
 forge-project-generator = { path = "../forge-project-generator" }
 jsonschema.workspace = true
+oxc_allocator.workspace = true
+oxc_ast.workspace = true
+oxc_ast_visit.workspace = true
+oxc_parser.workspace = true
+oxc_span.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 snafu.workspace = true

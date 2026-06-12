@@ -70,7 +70,7 @@ fn init_logging() {
             "frontend_forge_server=info,tower_http=info,forge_project_generator=info,forge_component_generator=info",
         )
     });
-    fmt().with_env_filter(filter).init();
+    let _ = fmt().with_env_filter(filter).try_init();
 }
 
 async fn run() -> Result<()> {

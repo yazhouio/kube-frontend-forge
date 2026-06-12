@@ -78,6 +78,7 @@ ENV FORGE_ROLLUP_BIN="/app/node_modules/.bin/rollup"
 ENV FORGE_COMPONENTS_PACKAGE_JSON="/app/node_modules/@frontend-forge/forge-components/package.json"
 ENV FORGE_PNPM_VERSION="11.1.0"
 ENV FORGE_NODE_VERSION="22.22.3"
+ENV RUST_LOG="frontend_forge_server=debug,tower_http=debug,axum=debug"
 
 WORKDIR /app
 COPY --from=rust-builder /workspace/target/release/frontend-forge-server /usr/local/bin/frontend-forge-server

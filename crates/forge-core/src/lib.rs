@@ -8,7 +8,7 @@ use forge_component_generator::{
 };
 use forge_project_generator::{
     ExtensionManifest, GenerateProjectFilesOptions, GenerateProjectFilesResult, PageMeta,
-    VirtualFile, generate_project_files, manifest_schema,
+    VirtualFile, build_format, generate_project_files, manifest_schema,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -30,6 +30,7 @@ pub struct BuildPlan {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildExpectations {
+    pub format: String,
     pub systemjs: bool,
     pub dist_dir: String,
 }
@@ -125,6 +126,7 @@ impl ForgeCore {
         )?;
         let total_ms = elapsed_ms(plan_started);
         let component_gen_ms = component_gen_ms.get();
+        let format = build_format(manifest);
         Ok(BuildPlan {
             manifest_name: manifest.name.clone(),
             module_name: manifest
@@ -133,11 +135,8 @@ impl ForgeCore {
                 .and_then(|build| build.module_name.clone()),
             entry: "src/index.ts".to_owned(),
             expectations: BuildExpectations {
-                systemjs: manifest
-                    .build
-                    .as_ref()
-                    .and_then(|build| build.systemjs)
-                    .unwrap_or(true),
+                format: format.as_str().to_owned(),
+                systemjs: format.is_systemjs(),
                 dist_dir: "dist".to_owned(),
             },
             timings: BuildPlanTimings {
@@ -207,11 +206,7 @@ mod tests {
         assert_eq!(plan.entry, "src/index.ts");
         assert_eq!(plan.expectations.dist_dir, "dist");
         assert!(plan.expectations.systemjs);
-        assert!(
-            plan.files
-                .iter()
-                .any(|file| file.path == "rollup.config.mjs")
-        );
+        assert!(plan.files.iter().any(|file| file.path == "build.mjs"));
         assert!(
             plan.files
                 .iter()

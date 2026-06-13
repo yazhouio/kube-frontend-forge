@@ -1,7 +1,7 @@
 {
   "build": {
     "moduleName": "inspecttask",
-    "systemjs": true,
+    "format": "systemjs",
     "target": "kubesphere-extension"
   },
   "description": "InspectTask extension package.",

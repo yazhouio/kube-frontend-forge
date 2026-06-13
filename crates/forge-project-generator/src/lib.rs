@@ -24,8 +24,9 @@ pub use runtime_contract::{
 };
 pub use schema::manifest_schema;
 pub use types::{
-    BuildMeta, ExtensionManifest, GenerateProjectFilesOptions, GenerateProjectFilesResult,
-    LocaleMeta, ManifestEnvelope, MenuMeta, PageMeta, RouteMeta, VirtualFile,
+    BuildFormat, BuildMeta, ExtensionManifest, GenerateProjectFilesOptions,
+    GenerateProjectFilesResult, LocaleMeta, ManifestEnvelope, MenuMeta, PageMeta, RouteMeta,
+    VirtualFile,
 };
 
 static SCAFFOLD_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/scaffold");
@@ -83,11 +84,8 @@ where
 
     let mut out = Vec::<VirtualFile>::new();
     let excluded = BTreeSet::from([
+        "build.mjs.tpl",
         "package.json.tpl",
-        "rollup.config.mjs.tpl",
-        "rollup.base.config.mjs.tpl",
-        "rollup.dev.config.mjs.tpl",
-        "rollup.prod.config.mjs.tpl",
         "src/extensionConfig.ts.tpl",
         "src/routes.tsx.tpl",
         "src/routes.ts.tpl",
@@ -108,7 +106,7 @@ where
         out.push(file.clone());
     }
 
-    render_rollup_configs(templates, &mut out)?;
+    render_build_config(&normalized, templates, &mut out)?;
 
     out.push(VirtualFile {
         path: "src/extensionConfig.ts".to_owned(),
@@ -154,30 +152,64 @@ where
     })
 }
 
-fn render_rollup_configs(
+fn render_build_config(
+    manifest: &ExtensionManifest,
     scaffold: &BTreeMap<String, String>,
     out: &mut Vec<VirtualFile>,
 ) -> Result<()> {
-    tracing::debug!("rendering rollup configs");
-    let replacements = BTreeMap::from([(
-        "EXTERNAL_PACKAGES".to_owned(),
-        serde_json::to_string_pretty(&runtime_contract::EXTERNAL_PACKAGES)
-            .map_err(|source| Error::SerializeJson { source })?,
-    )]);
+    tracing::debug!("rendering build config");
+    let replacements = BTreeMap::from([
+        (
+            "BUILD_FORMAT".to_owned(),
+            build_format(manifest).as_str().to_owned(),
+        ),
+        (
+            "EXTERNAL_PACKAGES".to_owned(),
+            serde_json::to_string_pretty(&runtime_contract::EXTERNAL_PACKAGES)
+                .map_err(|source| Error::SerializeJson { source })?,
+        ),
+    ]);
 
-    for (template_path, output_path) in [
-        ("rollup.config.mjs.tpl", "rollup.config.mjs"),
-        ("rollup.base.config.mjs.tpl", "rollup.base.config.mjs"),
-        ("rollup.dev.config.mjs.tpl", "rollup.dev.config.mjs"),
-        ("rollup.prod.config.mjs.tpl", "rollup.prod.config.mjs"),
-    ] {
-        out.push(VirtualFile {
-            path: output_path.to_owned(),
-            content: render_template(required_template(scaffold, template_path)?, &replacements),
-        });
-    }
+    out.push(VirtualFile {
+        path: "build.mjs".to_owned(),
+        content: render_template(required_template(scaffold, "build.mjs.tpl")?, &replacements),
+    });
 
     Ok(())
+}
+
+pub fn build_format(manifest: &ExtensionManifest) -> BuildFormat {
+    manifest
+        .build
+        .as_ref()
+        .and_then(|build| build.format)
+        .or_else(|| {
+            manifest
+                .build
+                .as_ref()
+                .and_then(|build| build.systemjs)
+                .map(|systemjs| {
+                    if systemjs {
+                        BuildFormat::Systemjs
+                    } else {
+                        BuildFormat::Esm
+                    }
+                })
+        })
+        .unwrap_or(BuildFormat::Systemjs)
+}
+
+impl BuildFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BuildFormat::Esm => "esm",
+            BuildFormat::Systemjs => "systemjs",
+        }
+    }
+
+    pub fn is_systemjs(self) -> bool {
+        matches!(self, BuildFormat::Systemjs)
+    }
 }
 
 fn validate_manifest(manifest: &ExtensionManifest) -> Result<()> {
@@ -273,6 +305,7 @@ fn normalize_manifest(manifest: &ExtensionManifest) -> ExtensionManifest {
             namespace: None,
             cluster: None,
             systemjs: build.systemjs,
+            format: build.format,
         }),
     }
 }
@@ -946,10 +979,7 @@ mod tests {
         assert!(paths.contains(&"package.json"));
         assert!(paths.contains(&"src/extensionConfig.ts"));
         assert!(paths.contains(&"src/routes.tsx"));
-        assert!(paths.contains(&"rollup.config.mjs"));
-        assert!(paths.contains(&"rollup.base.config.mjs"));
-        assert!(paths.contains(&"rollup.dev.config.mjs"));
-        assert!(paths.contains(&"rollup.prod.config.mjs"));
+        assert!(paths.contains(&"build.mjs"));
         assert!(paths.contains(&"src/locales/en.json"));
         assert!(paths.contains(&"src/locales/zh.json"));
         assert!(paths.contains(&"src/pages/SamplePage/index.tsx"));
@@ -1000,64 +1030,36 @@ mod tests {
         assert!(!dependencies.contains_key("swr"));
         assert!(!dependencies.contains_key("zustand"));
 
-        let rollup_config = result
+        let build_config = result
             .files
             .iter()
-            .find(|file| file.path == "rollup.config.mjs")
-            .unwrap();
-        assert!(rollup_config.content.contains("FORGE_DEV_MODE"));
-        assert!(rollup_config.content.contains("isForgeDevMode()"));
-        assert!(rollup_config.content.contains("rollup.dev.config.mjs"));
-        assert!(rollup_config.content.contains("rollup.prod.config.mjs"));
-
-        let rollup_base_config = result
-            .files
-            .iter()
-            .find(|file| file.path == "rollup.base.config.mjs")
+            .find(|file| file.path == "build.mjs")
             .unwrap();
         assert!(
-            rollup_base_config
+            build_config
                 .content
-                .contains("\"@ks-console/shared\"")
+                .contains("const buildFormat = 'systemjs'")
         );
-        assert!(rollup_base_config.content.contains("\"react\""));
-        assert!(!rollup_base_config.content.contains("'zustand'"));
-        assert!(rollup_base_config.content.contains("replaceNodeEnv()"));
-        assert!(rollup_base_config.content.contains("esbuildTranspile()"));
-        assert!(rollup_base_config.content.contains("transformSync"));
-        assert!(rollup_base_config.content.contains("preset: 'smallest'"));
-        assert!(rollup_base_config.content.contains("moduleSideEffects"));
-        assert!(rollup_base_config.content.contains("process.env.NODE_ENV"));
-        assert!(rollup_base_config.content.contains("format: 'system'"));
-
-        let rollup_dev_config = result
-            .files
-            .iter()
-            .find(|file| file.path == "rollup.dev.config.mjs")
-            .unwrap();
+        assert!(build_config.content.contains("\"@ks-console/shared\""));
+        assert!(build_config.content.contains("\"react\""));
+        assert!(!build_config.content.contains("'zustand'"));
         assert!(
-            rollup_dev_config
+            build_config
                 .content
                 .contains("resolveForgeComponentsSource()")
         );
         assert!(
-            rollup_dev_config
+            build_config
                 .content
                 .contains("@frontend-forge/forge-components/src/index.ts")
         );
-        assert!(
-            rollup_dev_config
-                .content
-                .contains("prePlugins: [resolveForgeComponentsSource()]")
-        );
-
-        let rollup_prod_config = result
-            .files
-            .iter()
-            .find(|file| file.path == "rollup.prod.config.mjs")
-            .unwrap();
-        assert!(rollup_prod_config.content.contains("esbuildMinify()"));
-        assert!(!rollup_config.content.contains("__MODULE_NAME_JSON__"));
+        assert!(build_config.content.contains("build({"));
+        assert!(build_config.content.contains("format: 'esm'"));
+        assert!(build_config.content.contains("type: 'systemjs'"));
+        assert!(build_config.content.contains("esbuild_minify"));
+        assert!(build_config.content.contains("charset: 'utf8'"));
+        assert!(build_config.content.contains("process.env.NODE_ENV"));
+        assert!(!build_config.content.contains("__MODULE_NAME_JSON__"));
     }
 
     #[test]

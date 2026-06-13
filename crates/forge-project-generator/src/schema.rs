@@ -134,7 +134,8 @@ fn build_definition() -> Value {
             "moduleName": { "type": "string" },
             "namespace": { "type": "string" },
             "cluster": { "type": "string" },
-            "systemjs": { "type": "boolean" }
+            "systemjs": { "type": "boolean" },
+            "format": { "enum": ["esm", "systemjs"] }
         }
     })
 }

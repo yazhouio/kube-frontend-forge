@@ -66,7 +66,7 @@ where
     R: Fn(&PageMeta, &ExtensionManifest) -> Result<String>,
 {
     let started = Instant::now();
-    tracing::info!(
+    tracing::debug!(
         manifest_name = %manifest.name,
         manifest_version = %manifest.version,
         page_count = manifest.pages.len(),
@@ -138,7 +138,7 @@ where
     });
 
     let warnings = warnings_for(options);
-    tracing::info!(
+    tracing::debug!(
         manifest_name = %normalized.name,
         file_count = out.len(),
         warning_count = warnings.len(),

@@ -852,7 +852,7 @@ async fn build_project(state: &AppState, value: Value) -> Result<BuildOutput> {
         .build_worker
         .run(&prepared.project_dir, &prepared.build_format)
         .await?;
-    tracing::info!(
+    tracing::debug!(
         stage = "node_build_worker",
         elapsed_ms = elapsed_ms(build_started),
         "forge build step completed"
@@ -866,7 +866,7 @@ fn prepare_build_project(state: &AppState, value: Value) -> Result<PreparedBuild
 
     let parse_started = Instant::now();
     let manifest = parse_manifest(state, value)?;
-    tracing::info!(
+    tracing::debug!(
         stage = "parse_manifest",
         elapsed_ms = elapsed_ms(parse_started),
         "forge build step completed"
@@ -874,7 +874,7 @@ fn prepare_build_project(state: &AppState, value: Value) -> Result<PreparedBuild
 
     let plan_started = Instant::now();
     let plan = state.core.create_build_plan(&manifest)?;
-    tracing::info!(
+    tracing::debug!(
         stage = "create_build_plan",
         project_gen_ms = plan.timings.project_gen_ms,
         component_gen_ms = plan.timings.component_gen_ms,
@@ -887,7 +887,7 @@ fn prepare_build_project(state: &AppState, value: Value) -> Result<PreparedBuild
 
     let write_started = Instant::now();
     write_virtual_files(&project_dir, &plan.files)?;
-    tracing::info!(
+    tracing::debug!(
         stage = "write_virtual_files",
         file_count = plan.files.len(),
         elapsed_ms = elapsed_ms(write_started),
@@ -896,7 +896,7 @@ fn prepare_build_project(state: &AppState, value: Value) -> Result<PreparedBuild
 
     let link_started = Instant::now();
     link_node_modules(&project_dir)?;
-    tracing::info!(
+    tracing::debug!(
         stage = "link_node_modules",
         elapsed_ms = elapsed_ms(link_started),
         "forge build step completed"
@@ -916,7 +916,7 @@ fn prepare_build_project(state: &AppState, value: Value) -> Result<PreparedBuild
 fn finish_build_project(prepared: PreparedBuild) -> Result<BuildOutput> {
     let validate_started = Instant::now();
     validate_dist(&prepared.dist_dir, prepared.expect_systemjs)?;
-    tracing::info!(
+    tracing::debug!(
         stage = "validate_dist",
         ast_validation = true,
         elapsed_ms = elapsed_ms(validate_started),
@@ -925,14 +925,14 @@ fn finish_build_project(prepared: PreparedBuild) -> Result<BuildOutput> {
 
     let collect_started = Instant::now();
     let files = collect_virtual_files(&prepared.dist_dir)?;
-    tracing::info!(
+    tracing::debug!(
         stage = "collect_virtual_files",
         file_count = files.len(),
         elapsed_ms = elapsed_ms(collect_started),
         "forge build step completed"
     );
 
-    tracing::info!(
+    tracing::debug!(
         stage = "build_project_total",
         elapsed_ms = elapsed_ms(prepared.total_started),
         "forge build step completed"
@@ -1016,8 +1016,8 @@ fn log_build_worker_output(logs: &[BuildWorkerLog]) {
             continue;
         }
         match log.stream.as_str() {
-            "stderr" => tracing::info!(stream = "stderr", "{}", log.line),
-            _ => tracing::info!(stream = "stdout", "{}", log.line),
+            "stderr" => tracing::warn!(stream = "stderr", "{}", log.line),
+            _ => tracing::debug!(stream = "stdout", "{}", log.line),
         }
     }
 }

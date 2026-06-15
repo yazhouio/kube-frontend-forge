@@ -3,8 +3,11 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::Arc,
-    time::Duration,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -21,11 +24,16 @@ use figment::{
 };
 use flate2::{Compression, write::GzEncoder};
 use forge_core::ForgeCore;
-use forge_project_generator::{ExtensionManifest, VirtualFile, unwrap_manifest};
+use forge_project_generator::{EXTERNAL_PACKAGES, ExtensionManifest, VirtualFile, unwrap_manifest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tempfile::TempDir;
-use tokio::{io::AsyncReadExt, process::Command as TokioCommand};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader},
+    process::{Child, ChildStdin, ChildStdout, Command as TokioCommand},
+    sync::Mutex as TokioMutex,
+    task::JoinHandle,
+};
 use tower_http::{
     services::ServeDir,
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
@@ -55,6 +63,254 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         include_str!("../../../schemas/data-source-source.schema.json"),
     ),
 ];
+
+const BUILD_WORKER_SCRIPT: &str = r#"
+import { existsSync } from 'node:fs';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import readline from 'node:readline';
+import { format as formatConsole } from 'node:util';
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+const protocolWrite = process.stdout.write.bind(process.stdout);
+const originalConsole = {
+  log: console.log,
+  info: console.info,
+  warn: console.warn,
+  error: console.error,
+};
+const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+const originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+function errorText(error) {
+  if (error && typeof error === 'object' && 'stack' in error) return String(error.stack);
+  if (error && typeof error === 'object' && 'message' in error) return String(error.message);
+  return String(error);
+}
+
+function emitProtocol(response) {
+  protocolWrite(`${JSON.stringify(response)}\n`);
+}
+
+function pushLog(logs, stream, message) {
+  const text = String(message);
+  for (const line of text.split(/\r?\n/)) {
+    if (line.trim()) logs.push({ stream, line });
+  }
+}
+
+function chunkToString(chunk, encoding) {
+  if (typeof chunk === 'string') {
+    return chunk;
+  }
+  if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) {
+    return Buffer.from(chunk).toString(typeof encoding === 'string' ? encoding : undefined);
+  }
+  return String(chunk);
+}
+
+async function withCapturedOutput(logs, task) {
+  console.log = (...args) => pushLog(logs, 'stdout', formatConsole(...args));
+  console.info = (...args) => pushLog(logs, 'stdout', formatConsole(...args));
+  console.warn = (...args) => pushLog(logs, 'stderr', formatConsole(...args));
+  console.error = (...args) => pushLog(logs, 'stderr', formatConsole(...args));
+  process.stdout.write = (chunk, encoding, callback) => {
+    pushLog(logs, 'stdout', chunkToString(chunk, encoding));
+    const done = typeof encoding === 'function' ? encoding : callback;
+    if (typeof done === 'function') queueMicrotask(done);
+    return true;
+  };
+  process.stderr.write = (chunk, encoding, callback) => {
+    pushLog(logs, 'stderr', chunkToString(chunk, encoding));
+    const done = typeof encoding === 'function' ? encoding : callback;
+    if (typeof done === 'function') queueMicrotask(done);
+    return true;
+  };
+
+  try {
+    return await task();
+  } finally {
+    console.log = originalConsole.log;
+    console.info = originalConsole.info;
+    console.warn = originalConsole.warn;
+    console.error = originalConsole.error;
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  }
+}
+
+const devModeValues = new Set(['1', 'true', 'yes', 'on', 'dev', 'development']);
+const isForgeDevMode = () =>
+  devModeValues.has((process.env.FORGE_DEV_MODE ?? '').toLowerCase()) ||
+  process.env.NODE_ENV === 'development';
+
+function loadBuildDependencies(projectDir) {
+  const require = createRequire(join(projectDir, 'package.json'));
+  return {
+    esbuild: require('esbuild'),
+    swc: require('@swc/core'),
+  };
+}
+
+function resolveForgeComponentsSource(rootDir, buildPlugin) {
+  const forgeComponentsSourceEntry = join(
+    rootDir,
+    'node_modules/@frontend-forge/forge-components/src/index.ts',
+  );
+  return {
+    name: 'forge-components-source',
+    setup(buildContext) {
+      if (!isForgeDevMode() || !existsSync(forgeComponentsSourceEntry)) {
+        return;
+      }
+      buildContext.onResolve({ filter: /^@frontend-forge\/forge-components$/ }, () => ({
+        path: forgeComponentsSourceEntry,
+      }));
+    },
+  };
+}
+
+async function timeStage(stage, task, logs, stream = 'stdout') {
+  const started = performance.now();
+  try {
+    const value = await task();
+    pushLog(logs, stream, `forge build stage completed stage=${stage} elapsed_ms=${Math.round(performance.now() - started)}`);
+    return value;
+  } catch (error) {
+    pushLog(logs, 'stderr', `forge build stage failed stage=${stage} elapsed_ms=${Math.round(performance.now() - started)}`);
+    throw error;
+  }
+}
+
+async function copyBuildOutputs(rootDir, tempDir, distDir) {
+  await mkdir(distDir, { recursive: true });
+  const tempStyle = join(tempDir, 'index.css');
+  if (existsSync(tempStyle)) {
+    await cp(tempStyle, join(distDir, 'style.css'));
+  }
+  const tempAssets = join(tempDir, 'assets');
+  if (existsSync(tempAssets)) {
+    await cp(tempAssets, join(distDir, 'assets'), { recursive: true });
+  }
+}
+
+async function runProjectBuild(request, logs) {
+  const rootDir = request.projectDir;
+  const buildFormat = request.buildFormat;
+  const externalPackages = request.externalPackages ?? [];
+  if (!['esm', 'systemjs'].includes(buildFormat)) {
+    throw new Error(`unsupported build format: ${buildFormat}`);
+  }
+
+  const { esbuild, swc } = loadBuildDependencies(rootDir);
+  const tempDir = join(rootDir, '.forge-esbuild');
+  const distDir = join(rootDir, 'dist');
+  const tempEntry = join(tempDir, 'index.js');
+  const external = externalPackages.flatMap((name) => [name, `${name}/*`]);
+  const stageTimer = (stage, task) => timeStage(stage, task, logs);
+
+  await rm(tempDir, { recursive: true, force: true });
+  await rm(distDir, { recursive: true, force: true });
+  await stageTimer('esbuild_bundle', () =>
+    esbuild.build({
+      absWorkingDir: rootDir,
+      entryPoints: ['src/index.ts'],
+      outfile: tempEntry,
+      bundle: true,
+      format: 'esm',
+      platform: 'browser',
+      target: 'es2022',
+      jsx: 'transform',
+      treeShaking: true,
+      minify: true,
+      charset: 'utf8',
+      legalComments: 'none',
+      sourcemap: false,
+      assetNames: 'assets/[name]-[hash]',
+      external,
+      define: {
+        'process.env.NODE_ENV': JSON.stringify('production'),
+      },
+      loader: {
+        '.avif': 'file',
+        '.gif': 'file',
+        '.jpg': 'file',
+        '.jpeg': 'file',
+        '.png': 'file',
+        '.svg': 'file',
+        '.webp': 'file',
+        '.woff': 'file',
+        '.woff2': 'file',
+        '.ttf': 'file',
+        '.eot': 'file',
+      },
+      plugins: [resolveForgeComponentsSource(rootDir)],
+    }),
+  );
+
+  const bundled = await readFile(tempEntry, 'utf8');
+  let outputCode = bundled;
+  if (buildFormat === 'systemjs') {
+    const systemjs = await stageTimer('swc_systemjs', async () => {
+      const output = await swc.transform(bundled, {
+        filename: 'index.js',
+        jsc: {
+          parser: {
+            syntax: 'ecmascript',
+          },
+          target: 'es2022',
+        },
+        module: {
+          type: 'systemjs',
+        },
+        minify: false,
+        sourceMaps: false,
+      });
+      return output.code;
+    });
+    outputCode = await stageTimer('esbuild_minify', async () => {
+      const output = await esbuild.transform(systemjs, {
+        loader: 'js',
+        target: 'es2022',
+        minify: true,
+        charset: 'utf8',
+        legalComments: 'none',
+        sourcemap: false,
+      });
+      return output.code;
+    });
+  }
+
+  await mkdir(distDir, { recursive: true });
+  await writeFile(join(distDir, 'index.js'), outputCode);
+  await stageTimer('copy_assets', () => copyBuildOutputs(rootDir, tempDir, distDir));
+}
+
+for await (const line of rl) {
+  if (!line.trim()) continue;
+  let request;
+  try {
+    request = JSON.parse(line);
+  } catch (error) {
+    emitProtocol({ id: null, ok: false, error: errorText(error), logs: [] });
+    continue;
+  }
+
+  const logs = [];
+  const id = request.id;
+  try {
+    await withCapturedOutput(logs, () => runProjectBuild(request, logs));
+    emitProtocol({ id, ok: true, logs });
+  } catch (error) {
+    emitProtocol({ id, ok: false, error: errorText(error), logs });
+  }
+}
+"#;
 
 #[tokio::main]
 async fn main() {
@@ -253,6 +509,7 @@ struct StaticRouteConfig {
 struct AppState {
     core: Arc<ForgeCore>,
     manifest_validator: Arc<jsonschema::Validator>,
+    build_worker: Arc<BuildWorker>,
 }
 
 impl AppState {
@@ -265,8 +522,261 @@ impl AppState {
         Ok(Self {
             core,
             manifest_validator: Arc::new(manifest_validator),
+            build_worker: Arc::new(BuildWorker::new()),
         })
     }
+}
+
+struct BuildWorker {
+    state: TokioMutex<BuildWorkerState>,
+    next_id: AtomicU64,
+}
+
+impl BuildWorker {
+    fn new() -> Self {
+        Self {
+            state: TokioMutex::new(BuildWorkerState::default()),
+            next_id: AtomicU64::new(1),
+        }
+    }
+
+    async fn run(&self, project_dir: &Path, build_format: &str) -> Result<()> {
+        let timeout_ms = build_timeout().as_millis().min(u128::from(u64::MAX)) as u64;
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let request = BuildWorkerRequest {
+            id,
+            project_dir: project_dir.to_string_lossy().into_owned(),
+            build_format: build_format.to_owned(),
+            external_packages: EXTERNAL_PACKAGES
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect(),
+            timeout_ms,
+        };
+        let mut state = self.state.lock().await;
+        state.run(request).await
+    }
+}
+
+#[derive(Default)]
+struct BuildWorkerState {
+    child: Option<Child>,
+    stdin: Option<ChildStdin>,
+    stdout: Option<TokioBufReader<ChildStdout>>,
+    stderr_task: Option<JoinHandle<()>>,
+}
+
+impl BuildWorkerState {
+    async fn run(&mut self, request: BuildWorkerRequest) -> Result<()> {
+        let line = serde_json::to_string(&request).map_err(|source| {
+            ServerError::internal(format!("failed to encode build request: {source}"))
+        })?;
+
+        self.ensure_started().await?;
+
+        let write_result = async {
+            let stdin = self
+                .stdin
+                .as_mut()
+                .ok_or_else(|| ServerError::internal("build worker stdin is unavailable"))?;
+            stdin.write_all(line.as_bytes()).await?;
+            stdin.write_all(b"\n").await?;
+            stdin.flush().await?;
+            Ok::<(), ServerError>(())
+        }
+        .await;
+        if let Err(error) = write_result {
+            self.stop().await;
+            return Err(error);
+        }
+
+        let response = match self
+            .read_response(request.id, Duration::from_millis(request.timeout_ms))
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                self.stop().await;
+                return Err(error);
+            }
+        };
+
+        log_build_worker_output(&response.logs);
+        if response.ok {
+            return Ok(());
+        }
+
+        Err(ServerError::internal(format!(
+            "node build worker failed: {}",
+            response.error.unwrap_or_else(|| "unknown error".to_owned())
+        )))
+    }
+
+    async fn ensure_started(&mut self) -> Result<()> {
+        if let Some(child) = &mut self.child {
+            match child.try_wait() {
+                Ok(None) => return Ok(()),
+                Ok(Some(status)) => {
+                    tracing::warn!(?status, "build worker exited; restarting");
+                    self.stop().await;
+                }
+                Err(source) => {
+                    tracing::warn!("failed to inspect build worker status: {source}");
+                    self.stop().await;
+                }
+            }
+        }
+
+        let mut child =
+            TokioCommand::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()))
+                .arg("--input-type=module")
+                .arg("--eval")
+                .arg(BUILD_WORKER_SCRIPT)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()
+                .map_err(|source| {
+                    ServerError::internal(format!("failed to spawn node build worker: {source}"))
+                })?;
+
+        if let Some(stderr) = child.stderr.take() {
+            self.stderr_task = Some(tokio::spawn(async move {
+                let mut reader = TokioBufReader::new(stderr);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let line = line.trim_end_matches(['\r', '\n']);
+                            if !line.trim().is_empty() {
+                                tracing::info!(stream = "worker-stderr", "{line}");
+                            }
+                        }
+                        Err(source) => {
+                            tracing::warn!("failed to read build worker stderr: {source}");
+                            break;
+                        }
+                    }
+                }
+            }));
+        }
+
+        self.stdin = child.stdin.take();
+        self.stdout = child.stdout.take().map(TokioBufReader::new);
+        self.child = Some(child);
+        Ok(())
+    }
+
+    async fn read_response(&mut self, id: u64, timeout: Duration) -> Result<BuildWorkerResponse> {
+        tokio::time::timeout(timeout, self.read_response_inner(id))
+            .await
+            .map_err(|_| {
+                ServerError::internal(format!(
+                    "build worker response timed out after {}ms",
+                    timeout.as_millis()
+                ))
+            })?
+    }
+
+    async fn read_response_inner(&mut self, id: u64) -> Result<BuildWorkerResponse> {
+        let stdout = self
+            .stdout
+            .as_mut()
+            .ok_or_else(|| ServerError::internal("build worker stdout is unavailable"))?;
+        let mut line = String::new();
+        loop {
+            line.clear();
+            let read = stdout.read_line(&mut line).await?;
+            if read == 0 {
+                return Err(ServerError::internal(
+                    "build worker exited without a response",
+                ));
+            }
+            if line.trim().is_empty() {
+                continue;
+            }
+            let response =
+                serde_json::from_str::<BuildWorkerResponse>(&line).map_err(|source| {
+                    ServerError::internal(format!(
+                        "failed to parse build worker response: {source}; line={line:?}"
+                    ))
+                })?;
+            if response.id == Some(id) {
+                return Ok(response);
+            }
+            let message = if let Some(error) = response.error {
+                format!(
+                    "build worker error: {error} (response id: {:?}; expected {id})",
+                    response.id
+                )
+            } else {
+                format!(
+                    "unexpected build worker response id {:?}; expected {id}",
+                    response.id
+                )
+            };
+            return Err(ServerError::internal(message));
+        }
+    }
+
+    async fn stop(&mut self) {
+        self.stdin = None;
+        self.stdout = None;
+        if let Some(task) = self.stderr_task.take() {
+            task.abort();
+        }
+        if let Some(mut child) = self.child.take() {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+        }
+    }
+
+    fn abort(&mut self) {
+        self.stdin = None;
+        self.stdout = None;
+        if let Some(task) = self.stderr_task.take() {
+            task.abort();
+        }
+        if let Some(mut child) = self.child.take() {
+            let _ = child.start_kill();
+        }
+    }
+}
+
+impl Drop for BuildWorkerState {
+    fn drop(&mut self) {
+        self.abort();
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BuildWorkerRequest {
+    id: u64,
+    project_dir: String,
+    build_format: String,
+    external_packages: Vec<String>,
+    timeout_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BuildWorkerResponse {
+    id: Option<u64>,
+    ok: bool,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    logs: Vec<BuildWorkerLog>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BuildWorkerLog {
+    stream: String,
+    line: String,
 }
 
 async fn schema_file(AxumPath(name): AxumPath<String>) -> Result<Response> {
@@ -303,8 +813,9 @@ async fn project_build(
     State(state): State<AppState>,
     Json(value): Json<Value>,
 ) -> Result<Json<ApiSuccess<ProjectFilesPayload>>> {
-    let files =
-        spawn_blocking(move || build_project(&state, value).map(|result| result.files)).await?;
+    let files = build_project(&state, value)
+        .await
+        .map(|result| result.files)?;
     Ok(Json(ApiSuccess::new(ProjectFilesPayload { files })))
 }
 
@@ -312,11 +823,9 @@ async fn project_build_tar(
     State(state): State<AppState>,
     Json(value): Json<Value>,
 ) -> Result<Response> {
-    let bytes = spawn_blocking(move || {
-        let result = build_project(&state, value)?;
-        archive_directory(&result.dist_dir)
-    })
-    .await?;
+    let result = build_project(&state, value).await?;
+    let dist_dir = result.dist_dir.clone();
+    let bytes = spawn_blocking(move || archive_directory(&dist_dir)).await?;
     Ok(tar_response(bytes, "build.tar.gz"))
 }
 
@@ -334,20 +843,104 @@ fn create_project_files(state: &AppState, value: Value) -> Result<Vec<VirtualFil
     Ok(result.files)
 }
 
-fn build_project(state: &AppState, value: Value) -> Result<BuildOutput> {
+async fn build_project(state: &AppState, value: Value) -> Result<BuildOutput> {
+    let prepare_state = state.clone();
+    let prepared = spawn_blocking(move || prepare_build_project(&prepare_state, value)).await?;
+
+    let build_started = Instant::now();
+    state
+        .build_worker
+        .run(&prepared.project_dir, &prepared.build_format)
+        .await?;
+    tracing::info!(
+        stage = "node_build_worker",
+        elapsed_ms = elapsed_ms(build_started),
+        "forge build step completed"
+    );
+
+    spawn_blocking(move || finish_build_project(prepared)).await
+}
+
+fn prepare_build_project(state: &AppState, value: Value) -> Result<PreparedBuild> {
+    let total_started = Instant::now();
+
+    let parse_started = Instant::now();
     let manifest = parse_manifest(state, value)?;
+    tracing::info!(
+        stage = "parse_manifest",
+        elapsed_ms = elapsed_ms(parse_started),
+        "forge build step completed"
+    );
+
+    let plan_started = Instant::now();
     let plan = state.core.create_build_plan(&manifest)?;
+    tracing::info!(
+        stage = "create_build_plan",
+        project_gen_ms = plan.timings.project_gen_ms,
+        component_gen_ms = plan.timings.component_gen_ms,
+        elapsed_ms = elapsed_ms(plan_started),
+        "forge build step completed"
+    );
+
     let work = TempDir::new()?;
     let project_dir = work.path().join("project");
+
+    let write_started = Instant::now();
     write_virtual_files(&project_dir, &plan.files)?;
+    tracing::info!(
+        stage = "write_virtual_files",
+        file_count = plan.files.len(),
+        elapsed_ms = elapsed_ms(write_started),
+        "forge build step completed"
+    );
+
+    let link_started = Instant::now();
     link_node_modules(&project_dir)?;
-    run_build_script(&project_dir)?;
+    tracing::info!(
+        stage = "link_node_modules",
+        elapsed_ms = elapsed_ms(link_started),
+        "forge build step completed"
+    );
+
     let dist_dir = project_dir.join(&plan.expectations.dist_dir);
-    validate_dist(&dist_dir, plan.expectations.systemjs)?;
-    let files = collect_virtual_files(&dist_dir)?;
-    Ok(BuildOutput {
+    Ok(PreparedBuild {
         _work: work,
+        project_dir,
         dist_dir,
+        build_format: plan.expectations.format,
+        expect_systemjs: plan.expectations.systemjs,
+        total_started,
+    })
+}
+
+fn finish_build_project(prepared: PreparedBuild) -> Result<BuildOutput> {
+    let validate_started = Instant::now();
+    validate_dist(&prepared.dist_dir, prepared.expect_systemjs)?;
+    tracing::info!(
+        stage = "validate_dist",
+        ast_validation = true,
+        elapsed_ms = elapsed_ms(validate_started),
+        "forge build step completed"
+    );
+
+    let collect_started = Instant::now();
+    let files = collect_virtual_files(&prepared.dist_dir)?;
+    tracing::info!(
+        stage = "collect_virtual_files",
+        file_count = files.len(),
+        elapsed_ms = elapsed_ms(collect_started),
+        "forge build step completed"
+    );
+
+    tracing::info!(
+        stage = "build_project_total",
+        elapsed_ms = elapsed_ms(prepared.total_started),
+        "forge build step completed"
+    );
+
+    Ok(BuildOutput {
+        _work: prepared._work,
+        dist_dir: prepared.dist_dir,
         files,
     })
 }
@@ -409,97 +1002,28 @@ fn link_node_modules(project_dir: &Path) -> Result<()> {
     }
 }
 
-fn run_build_script(project_dir: &Path) -> Result<()> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .enable_time()
-        .build()
-        .map_err(|source| {
-            ServerError::internal(format!("failed to create Tokio runtime: {source}"))
-        })?
-        .block_on(run_build_script_async(project_dir))
-}
-
-async fn run_build_script_async(project_dir: &Path) -> Result<()> {
-    let timeout = env::var("FORGE_BUILD_TIMEOUT_MS")
+fn build_timeout() -> Duration {
+    env::var("FORGE_BUILD_TIMEOUT_MS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .map(Duration::from_millis)
-        .unwrap_or_else(|| Duration::from_millis(30_000));
+        .unwrap_or_else(|| Duration::from_millis(30_000))
+}
 
-    let mut command = build_script_command();
-    let command_label = "node build.mjs".to_owned();
-    let mut child = command
-        .current_dir(project_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-
-    let stdout = tokio::spawn(read_pipe(child.stdout.take()));
-    let stderr = tokio::spawn(read_pipe(child.stderr.take()));
-
-    let status = match tokio::time::timeout(timeout, child.wait()).await {
-        Ok(waited) => waited?,
-        Err(_) => {
-            let _ = child.kill().await;
-            let stdout = collect_pipe(stdout).await;
-            let stderr = collect_pipe(stderr).await;
-            return Err(ServerError::internal(format!(
-                "{command_label} timed out after {}ms\nstdout:\n{}\nstderr:\n{}",
-                timeout.as_millis(),
-                String::from_utf8_lossy(&stdout),
-                String::from_utf8_lossy(&stderr)
-            )));
+fn log_build_worker_output(logs: &[BuildWorkerLog]) {
+    for log in logs {
+        if log.line.trim().is_empty() {
+            continue;
         }
-    };
-
-    let stdout = collect_pipe(stdout).await;
-    let stderr = collect_pipe(stderr).await;
-    log_build_script_output(&stdout, &stderr);
-    if status.success() {
-        return Ok(());
-    }
-    Err(ServerError::internal(format!(
-        "{command_label} failed with status {:?}\nstdout:\n{}\nstderr:\n{}",
-        status.code(),
-        String::from_utf8_lossy(&stdout),
-        String::from_utf8_lossy(&stderr)
-    )))
-}
-
-async fn read_pipe<T>(pipe: Option<T>) -> Vec<u8>
-where
-    T: tokio::io::AsyncRead + Unpin,
-{
-    let mut output = Vec::new();
-    if let Some(mut pipe) = pipe {
-        let _ = pipe.read_to_end(&mut output).await;
-    }
-    output
-}
-
-async fn collect_pipe(handle: tokio::task::JoinHandle<Vec<u8>>) -> Vec<u8> {
-    handle.await.unwrap_or_default()
-}
-
-fn log_build_script_output(stdout: &[u8], stderr: &[u8]) {
-    for line in String::from_utf8_lossy(stdout).lines() {
-        if !line.trim().is_empty() {
-            tracing::info!(stream = "stdout", "{line}");
-        }
-    }
-    for line in String::from_utf8_lossy(stderr).lines() {
-        if !line.trim().is_empty() {
-            tracing::info!(stream = "stderr", "{line}");
+        match log.stream.as_str() {
+            "stderr" => tracing::info!(stream = "stderr", "{}", log.line),
+            _ => tracing::info!(stream = "stdout", "{}", log.line),
         }
     }
 }
 
-fn build_script_command() -> TokioCommand {
-    let mut command =
-        TokioCommand::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()));
-    command.arg("build.mjs");
-    command
+fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 fn validate_dist(dist_dir: &Path, expect_systemjs: bool) -> Result<()> {
@@ -526,7 +1050,7 @@ fn validate_dist(dist_dir: &Path, expect_systemjs: bool) -> Result<()> {
             let content = fs::read_to_string(&path)?;
             match systemjs_validator::validate_systemjs_code(&content) {
                 Ok(validation) => {
-                    has_system_register = has_system_register || validation.has_system_register;
+                    has_system_register |= validation.has_system_register;
                 }
                 Err(systemjs_validator::SystemJsValidationError::Parse { message }) => {
                     return Err(ServerError::internal(format!(
@@ -685,6 +1209,15 @@ struct BuildOutput {
     _work: TempDir,
     dist_dir: PathBuf,
     files: Vec<VirtualFile>,
+}
+
+struct PreparedBuild {
+    _work: TempDir,
+    project_dir: PathBuf,
+    dist_dir: PathBuf,
+    build_format: String,
+    expect_systemjs: bool,
+    total_started: Instant,
 }
 
 #[derive(Debug, Serialize)]

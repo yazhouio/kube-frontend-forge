@@ -2,9 +2,9 @@ use std::{
     env, fs, io,
     net::SocketAddr,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use axum::{
@@ -25,6 +25,7 @@ use forge_project_generator::{ExtensionManifest, VirtualFile, unwrap_manifest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tempfile::TempDir;
+use tokio::{io::AsyncReadExt, process::Command as TokioCommand};
 use tower_http::{
     services::ServeDir,
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
@@ -409,6 +410,17 @@ fn link_node_modules(project_dir: &Path) -> Result<()> {
 }
 
 fn run_build_script(project_dir: &Path) -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .map_err(|source| {
+            ServerError::internal(format!("failed to create Tokio runtime: {source}"))
+        })?
+        .block_on(run_build_script_async(project_dir))
+}
+
+async fn run_build_script_async(project_dir: &Path) -> Result<()> {
     let timeout = env::var("FORGE_BUILD_TIMEOUT_MS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
@@ -422,35 +434,52 @@ fn run_build_script(project_dir: &Path) -> Result<()> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    let started = Instant::now();
 
-    loop {
-        if started.elapsed() > timeout {
-            let _ = child.kill();
-            let output = child.wait_with_output()?;
+    let stdout = tokio::spawn(read_pipe(child.stdout.take()));
+    let stderr = tokio::spawn(read_pipe(child.stderr.take()));
+
+    let status = match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(waited) => waited?,
+        Err(_) => {
+            let _ = child.kill().await;
+            let stdout = collect_pipe(stdout).await;
+            let stderr = collect_pipe(stderr).await;
             return Err(ServerError::internal(format!(
                 "{command_label} timed out after {}ms\nstdout:\n{}\nstderr:\n{}",
                 timeout.as_millis(),
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
+                String::from_utf8_lossy(&stdout),
+                String::from_utf8_lossy(&stderr)
             )));
         }
+    };
 
-        if child.try_wait()?.is_some() {
-            let output = child.wait_with_output()?;
-            log_build_script_output(&output.stdout, &output.stderr);
-            if output.status.success() {
-                return Ok(());
-            }
-            return Err(ServerError::internal(format!(
-                "{command_label} failed with status {:?}\nstdout:\n{}\nstderr:\n{}",
-                output.status.code(),
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        std::thread::sleep(Duration::from_millis(100));
+    let stdout = collect_pipe(stdout).await;
+    let stderr = collect_pipe(stderr).await;
+    log_build_script_output(&stdout, &stderr);
+    if status.success() {
+        return Ok(());
     }
+    Err(ServerError::internal(format!(
+        "{command_label} failed with status {:?}\nstdout:\n{}\nstderr:\n{}",
+        status.code(),
+        String::from_utf8_lossy(&stdout),
+        String::from_utf8_lossy(&stderr)
+    )))
+}
+
+async fn read_pipe<T>(pipe: Option<T>) -> Vec<u8>
+where
+    T: tokio::io::AsyncRead + Unpin,
+{
+    let mut output = Vec::new();
+    if let Some(mut pipe) = pipe {
+        let _ = pipe.read_to_end(&mut output).await;
+    }
+    output
+}
+
+async fn collect_pipe(handle: tokio::task::JoinHandle<Vec<u8>>) -> Vec<u8> {
+    handle.await.unwrap_or_default()
 }
 
 fn log_build_script_output(stdout: &[u8], stderr: &[u8]) {
@@ -466,8 +495,9 @@ fn log_build_script_output(stdout: &[u8], stderr: &[u8]) {
     }
 }
 
-fn build_script_command() -> Command {
-    let mut command = Command::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()));
+fn build_script_command() -> TokioCommand {
+    let mut command =
+        TokioCommand::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()));
     command.arg("build.mjs");
     command
 }
@@ -529,6 +559,7 @@ fn validate_dist(dist_dir: &Path, expect_systemjs: bool) -> Result<()> {
             }
         }
     }
+
     if expect_systemjs && !has_system_register {
         return Err(ServerError::internal(
             "illegal output: missing System.register",

@@ -38,7 +38,7 @@ swc_ecma_parser = "41.0.0"
 swc_ecma_visit = "25.0.0"
 tar = "0.4"
 tempfile = "3.10"
-tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "net"] }
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "net", "process", "time", "io-util"] }
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

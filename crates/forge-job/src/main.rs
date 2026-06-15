@@ -3,7 +3,7 @@ use std::{
     env, fs,
     io::{self, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command as StdCommand, Stdio},
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -16,6 +16,7 @@ use forge_project_generator::{
 use serde::Serialize;
 use snafu::Snafu;
 use tempfile::TempDir;
+use tokio::{io::AsyncReadExt, process::Command as TokioCommand};
 
 mod systemjs_validator;
 
@@ -182,6 +183,15 @@ fn run_build(args: BuildArgs) -> Result<()> {
 }
 
 fn run_build_script(project_dir: &Path) -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .context(CreateRuntimeSnafu)?
+        .block_on(run_build_script_async(project_dir))
+}
+
+async fn run_build_script_async(project_dir: &Path) -> Result<()> {
     let timeout = env::var("FORGE_BUILD_TIMEOUT_MS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
@@ -200,42 +210,52 @@ fn run_build_script(project_dir: &Path) -> Result<()> {
             command: command_label.clone(),
         })?;
 
-    let started = Instant::now();
-    loop {
-        if started.elapsed() > timeout {
-            let _ = child.kill();
-            let output = child.wait_with_output().context(WaitCommandSnafu {
-                command: command_label.clone(),
-            })?;
+    let stdout = tokio::spawn(read_pipe(child.stdout.take()));
+    let stderr = tokio::spawn(read_pipe(child.stderr.take()));
+
+    let status = match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(waited) => waited.context(WaitCommandSnafu {
+            command: command_label.clone(),
+        })?,
+        Err(_) => {
+            let _ = child.kill().await;
+            let stdout = collect_pipe(stdout).await;
+            let stderr = collect_pipe(stderr).await;
             return Err(Error::CommandTimeout {
                 command: command_label,
                 timeout_ms: timeout.as_millis() as u64,
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                stdout: String::from_utf8_lossy(&stdout).to_string(),
+                stderr: String::from_utf8_lossy(&stderr).to_string(),
             });
         }
-        if child
-            .try_wait()
-            .context(WaitCommandSnafu {
-                command: command_label.clone(),
-            })?
-            .is_some()
-        {
-            let output = child.wait_with_output().context(WaitCommandSnafu {
-                command: command_label.clone(),
-            })?;
-            if output.status.success() {
-                return Ok(());
-            }
-            return Err(Error::CommandFailed {
-                command: command_label,
-                status: output.status.code(),
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            });
-        }
-        std::thread::sleep(Duration::from_millis(100));
+    };
+
+    let stdout = collect_pipe(stdout).await;
+    let stderr = collect_pipe(stderr).await;
+    if status.success() {
+        return Ok(());
     }
+    Err(Error::CommandFailed {
+        command: command_label,
+        status: status.code(),
+        stdout: String::from_utf8_lossy(&stdout).to_string(),
+        stderr: String::from_utf8_lossy(&stderr).to_string(),
+    })
+}
+
+async fn read_pipe<T>(pipe: Option<T>) -> Vec<u8>
+where
+    T: tokio::io::AsyncRead + Unpin,
+{
+    let mut output = Vec::new();
+    if let Some(mut pipe) = pipe {
+        let _ = pipe.read_to_end(&mut output).await;
+    }
+    output
+}
+
+async fn collect_pipe(handle: tokio::task::JoinHandle<Vec<u8>>) -> Vec<u8> {
+    handle.await.unwrap_or_default()
 }
 
 fn validate_dist(dist_dir: &Path, expect_systemjs: bool) -> Result<()> {
@@ -934,8 +954,9 @@ fn find_upwards(rel_path: &str) -> Vec<PathBuf> {
     out
 }
 
-fn build_script_command() -> Command {
-    let mut command = Command::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()));
+fn build_script_command() -> TokioCommand {
+    let mut command =
+        TokioCommand::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()));
     command.arg("build.mjs");
     command
 }
@@ -967,7 +988,7 @@ fn read_package_version(package_json: &Path) -> Option<String> {
 }
 
 fn command_version(command: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(command).args(args).output().ok()?;
+    let output = StdCommand::new(command).args(args).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -1088,6 +1109,9 @@ enum Error {
         stdout: String,
         stderr: String,
     },
+
+    #[snafu(display("failed to create Tokio runtime for build script"))]
+    CreateRuntime { source: io::Error },
 
     #[snafu(display("missing build dist directory {}", path.display()))]
     MissingDistDir { path: PathBuf },

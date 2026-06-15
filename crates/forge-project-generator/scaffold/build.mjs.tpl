@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { transform as swcTransform } from '@swc/core';
 import { build, transform as esbuildTransform } from 'esbuild';
 
 const buildFormat = '__BUILD_FORMAT__';
@@ -105,6 +104,7 @@ async function bundleEsm() {
 }
 
 async function toSystemjs(bundled) {
+  const { transform: swcTransform } = await import('@swc/core');
   const output = await timeStage('swc_systemjs', () =>
     swcTransform(bundled, {
       filename: 'index.js',

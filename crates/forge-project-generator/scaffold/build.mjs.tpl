@@ -158,7 +158,14 @@ export async function runBuild(options = {}) {
   await stageTimer('copy_assets', copyBuildOutputs);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+let isMain = false;
+try {
+  if (process.argv[1]) {
+    isMain = import.meta.url === pathToFileURL(process.argv[1]).href;
+  }
+} catch {}
+
+if (isMain) {
   runBuild().catch((error) => {
     console.error(error);
     process.exitCode = 1;

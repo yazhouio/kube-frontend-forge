@@ -105,8 +105,11 @@ function pushLog(logs, stream, message) {
 }
 
 function chunkToString(chunk, encoding) {
-  if (Buffer.isBuffer(chunk)) {
-    return chunk.toString(typeof encoding === 'string' ? encoding : undefined);
+  if (typeof chunk === 'string') {
+    return chunk;
+  }
+  if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) {
+    return Buffer.from(chunk).toString(typeof encoding === 'string' ? encoding : undefined);
   }
   return String(chunk);
 }
@@ -704,10 +707,18 @@ impl BuildWorkerState {
             if response.id == Some(id) {
                 return Ok(response);
             }
-            return Err(ServerError::internal(format!(
-                "unexpected build worker response id {:?}; expected {id}",
-                response.id
-            )));
+            let message = if let Some(error) = response.error {
+                format!(
+                    "build worker error: {error} (response id: {:?}; expected {id})",
+                    response.id
+                )
+            } else {
+                format!(
+                    "unexpected build worker response id {:?}; expected {id}",
+                    response.id
+                )
+            };
+            return Err(ServerError::internal(message));
         }
     }
 
@@ -1033,32 +1044,34 @@ fn validate_dist(dist_dir: &Path, expect_systemjs: bool) -> Result<()> {
         )));
     }
 
-    let mut has_system_register = false;
-    for path in js_files {
-        let content = fs::read_to_string(&path)?;
-        match systemjs_validator::validate_systemjs_code(&content) {
-            Ok(validation) => {
-                has_system_register |= validation.has_system_register;
-            }
-            Err(systemjs_validator::SystemJsValidationError::Parse { message }) => {
-                return Err(ServerError::internal(format!(
-                    "illegal output {} failed JavaScript parse: {message}",
-                    path.display()
-                )));
-            }
-            Err(systemjs_validator::SystemJsValidationError::ForbiddenToken { token }) => {
-                return Err(ServerError::internal(format!(
-                    "illegal output {} contains forbidden token `{token}`",
-                    path.display()
-                )));
+    if expect_systemjs {
+        let mut has_system_register = false;
+        for path in js_files {
+            let content = fs::read_to_string(&path)?;
+            match systemjs_validator::validate_systemjs_code(&content) {
+                Ok(validation) => {
+                    has_system_register |= validation.has_system_register;
+                }
+                Err(systemjs_validator::SystemJsValidationError::Parse { message }) => {
+                    return Err(ServerError::internal(format!(
+                        "illegal output {} failed JavaScript parse: {message}",
+                        path.display()
+                    )));
+                }
+                Err(systemjs_validator::SystemJsValidationError::ForbiddenToken { token }) => {
+                    return Err(ServerError::internal(format!(
+                        "illegal output {} contains forbidden token `{token}`",
+                        path.display()
+                    )));
+                }
             }
         }
-    }
 
-    if expect_systemjs && !has_system_register {
-        return Err(ServerError::internal(
-            "illegal output: missing System.register",
-        ));
+        if !has_system_register {
+            return Err(ServerError::internal(
+                "illegal output: missing System.register",
+            ));
+        }
     }
     Ok(())
 }

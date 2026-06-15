@@ -54,7 +54,7 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
 
     pub fn generate_page_code(&self, page: &PageConfig) -> Result<String> {
         let started = Instant::now();
-        tracing::info!(
+        tracing::debug!(
             page_id = %page.meta.id,
             page_name = %page.meta.name,
             root_node_id = %page.root.id,
@@ -100,7 +100,7 @@ impl<B: JsCodeBackend> ComponentGenerator<B> {
         let code = self
             .backend
             .emit_module(&imports, &ctx.module_items, Some(&root_name))?;
-        tracing::info!(
+        tracing::debug!(
             page_id = %page.meta.id,
             page_name = %page.meta.name,
             root_component = %root_name,

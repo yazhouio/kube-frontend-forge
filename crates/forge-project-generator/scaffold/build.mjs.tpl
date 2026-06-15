@@ -28,6 +28,19 @@ const forgeComponentsSourceEntry = fileURLToPath(
 const external = externalPackages.flatMap((name) => [name, `${name}/*`]);
 const hasForgeComponentsSource = () => isForgeDevMode() && existsSync(forgeComponentsSourceEntry);
 
+const useSyncExternalStoreShimSource = __USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE__;
+const useSyncExternalStoreWithSelectorSource = __USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE__;
+
+const reactCjsShimModules = new Map([
+  ['use-sync-external-store', useSyncExternalStoreShimSource],
+  ['use-sync-external-store/shim', useSyncExternalStoreShimSource],
+  ['use-sync-external-store/shim/index.js', useSyncExternalStoreShimSource],
+  ['use-sync-external-store/with-selector', useSyncExternalStoreWithSelectorSource],
+  ['use-sync-external-store/with-selector.js', useSyncExternalStoreWithSelectorSource],
+  ['use-sync-external-store/shim/with-selector', useSyncExternalStoreWithSelectorSource],
+  ['use-sync-external-store/shim/with-selector.js', useSyncExternalStoreWithSelectorSource],
+]);
+
 function resolveForgeComponentsSource() {
   return {
     name: 'forge-components-source',
@@ -37,6 +50,28 @@ function resolveForgeComponentsSource() {
       }
       build.onResolve({ filter: /^@frontend-forge\/forge-components$/ }, () => ({
         path: forgeComponentsSourceEntry,
+      }));
+    },
+  };
+}
+
+function resolveReactCjsShims() {
+  return {
+    name: 'react-cjs-shims-to-esm',
+    setup(build) {
+      build.onResolve({ filter: /^use-sync-external-store(?:\/.*)?$/ }, (args) => {
+        if (!reactCjsShimModules.has(args.path)) {
+          return;
+        }
+        return {
+          path: args.path,
+          namespace: 'forge-react-cjs-shims',
+        };
+      });
+
+      build.onLoad({ filter: /.*/, namespace: 'forge-react-cjs-shims' }, (args) => ({
+        contents: reactCjsShimModules.get(args.path),
+        loader: 'js',
       }));
     },
   };
@@ -99,7 +134,10 @@ async function bundleEsm(stageTimer) {
         '.ttf': 'file',
         '.eot': 'file',
       },
-      plugins: [resolveForgeComponentsSource()],
+      plugins: [
+        resolveForgeComponentsSource(),
+        resolveReactCjsShims(),
+      ],
     }),
   );
 }

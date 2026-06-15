@@ -1,6 +1,7 @@
 mod error;
 mod runtime_contract;
 mod schema;
+mod shims;
 mod types;
 
 use std::{
@@ -23,6 +24,9 @@ pub use runtime_contract::{
     build_config_summary,
 };
 pub use schema::manifest_schema;
+pub use shims::{
+    USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE, USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE,
+};
 pub use types::{
     BuildFormat, BuildMeta, ExtensionManifest, GenerateProjectFilesOptions,
     GenerateProjectFilesResult, LocaleMeta, ManifestEnvelope, MenuMeta, PageMeta, RouteMeta,
@@ -167,6 +171,14 @@ fn render_build_config(
             "EXTERNAL_PACKAGES".to_owned(),
             serde_json::to_string_pretty(&runtime_contract::EXTERNAL_PACKAGES)
                 .map_err(|source| Error::SerializeJson { source })?,
+        ),
+        (
+            "USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE".to_owned(),
+            json_string_literal(USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE)?,
+        ),
+        (
+            "USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE".to_owned(),
+            json_string_literal(USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE)?,
         ),
     ]);
 
@@ -783,6 +795,10 @@ fn render_template(content: &str, vars: &BTreeMap<String, String>) -> String {
     out
 }
 
+fn json_string_literal(value: &str) -> Result<String> {
+    serde_json::to_string(value).map_err(|source| Error::SerializeJson { source })
+}
+
 fn assert_non_empty(value: &str, label: &str) -> Result<()> {
     if value.trim().is_empty() {
         return Err(Error::NonEmptyString {
@@ -1047,6 +1063,22 @@ mod tests {
             build_config
                 .content
                 .contains("resolveForgeComponentsSource()")
+        );
+        assert!(build_config.content.contains("resolveReactCjsShims()"));
+        assert!(
+            build_config
+                .content
+                .contains("useSyncExternalStoreWithSelector")
+        );
+        assert!(
+            !build_config
+                .content
+                .contains("__USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE__")
+        );
+        assert!(
+            !build_config
+                .content
+                .contains("__USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE__")
         );
         assert!(
             build_config

@@ -3,7 +3,7 @@ use std::{
     env, fs,
     io::{self, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command as StdCommand, Stdio},
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -16,6 +16,7 @@ use forge_project_generator::{
 use serde::Serialize;
 use snafu::Snafu;
 use tempfile::TempDir;
+use tokio::{io::AsyncReadExt, process::Command as TokioCommand};
 
 mod systemjs_validator;
 
@@ -126,12 +127,12 @@ fn run_build(args: BuildArgs) -> Result<()> {
             None
         };
 
-        let rollup_started = Instant::now();
-        run_rollup_build(&project_dir)?;
-        timings.rollup_ms = elapsed_ms(rollup_started);
+        let build_started = Instant::now();
+        run_build_script(&project_dir)?;
+        timings.build_ms = elapsed_ms(build_started);
 
         let dist_dir = project_dir.join(&plan.expectations.dist_dir);
-        validate_systemjs_dist(&dist_dir)?;
+        validate_dist(&dist_dir, plan.expectations.systemjs)?;
         let mut bundle_summary = summarize_dist(&dist_dir)?;
 
         let archive_started = Instant::now();
@@ -181,15 +182,24 @@ fn run_build(args: BuildArgs) -> Result<()> {
     }
 }
 
-fn run_rollup_build(project_dir: &Path) -> Result<()> {
+fn run_build_script(project_dir: &Path) -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .context(CreateRuntimeSnafu)?
+        .block_on(run_build_script_async(project_dir))
+}
+
+async fn run_build_script_async(project_dir: &Path) -> Result<()> {
     let timeout = env::var("FORGE_BUILD_TIMEOUT_MS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .map(Duration::from_millis)
         .unwrap_or_else(|| Duration::from_millis(30_000));
 
-    let mut command = rollup_command(&["-c"]);
-    let command_label = "rollup -c".to_owned();
+    let mut command = build_script_command();
+    let command_label = "node build.mjs".to_owned();
 
     let mut child = command
         .current_dir(project_dir)
@@ -200,45 +210,55 @@ fn run_rollup_build(project_dir: &Path) -> Result<()> {
             command: command_label.clone(),
         })?;
 
-    let started = Instant::now();
-    loop {
-        if started.elapsed() > timeout {
-            let _ = child.kill();
-            let output = child.wait_with_output().context(WaitCommandSnafu {
-                command: command_label.clone(),
-            })?;
+    let stdout = tokio::spawn(read_pipe(child.stdout.take()));
+    let stderr = tokio::spawn(read_pipe(child.stderr.take()));
+
+    let status = match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(waited) => waited.context(WaitCommandSnafu {
+            command: command_label.clone(),
+        })?,
+        Err(_) => {
+            let _ = child.kill().await;
+            let stdout = collect_pipe(stdout).await;
+            let stderr = collect_pipe(stderr).await;
             return Err(Error::CommandTimeout {
                 command: command_label,
                 timeout_ms: timeout.as_millis() as u64,
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                stdout: String::from_utf8_lossy(&stdout).to_string(),
+                stderr: String::from_utf8_lossy(&stderr).to_string(),
             });
         }
-        if child
-            .try_wait()
-            .context(WaitCommandSnafu {
-                command: command_label.clone(),
-            })?
-            .is_some()
-        {
-            let output = child.wait_with_output().context(WaitCommandSnafu {
-                command: command_label.clone(),
-            })?;
-            if output.status.success() {
-                return Ok(());
-            }
-            return Err(Error::CommandFailed {
-                command: command_label,
-                status: output.status.code(),
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            });
-        }
-        std::thread::sleep(Duration::from_millis(100));
+    };
+
+    let stdout = collect_pipe(stdout).await;
+    let stderr = collect_pipe(stderr).await;
+    if status.success() {
+        return Ok(());
     }
+    Err(Error::CommandFailed {
+        command: command_label,
+        status: status.code(),
+        stdout: String::from_utf8_lossy(&stdout).to_string(),
+        stderr: String::from_utf8_lossy(&stderr).to_string(),
+    })
 }
 
-fn validate_systemjs_dist(dist_dir: &Path) -> Result<()> {
+async fn read_pipe<T>(pipe: Option<T>) -> Vec<u8>
+where
+    T: tokio::io::AsyncRead + Unpin,
+{
+    let mut output = Vec::new();
+    if let Some(mut pipe) = pipe {
+        let _ = pipe.read_to_end(&mut output).await;
+    }
+    output
+}
+
+async fn collect_pipe(handle: tokio::task::JoinHandle<Vec<u8>>) -> Vec<u8> {
+    handle.await.unwrap_or_default()
+}
+
+fn validate_dist(dist_dir: &Path, expect_systemjs: bool) -> Result<()> {
     if !dist_dir.is_dir() {
         return Err(Error::MissingDistDir {
             path: dist_dir.to_path_buf(),
@@ -255,24 +275,27 @@ fn validate_systemjs_dist(dist_dir: &Path) -> Result<()> {
         });
     }
 
-    let mut has_system_register = false;
-    for path in js_files {
-        let content = fs::read_to_string(&path).context(ReadFileSnafu { path: path.clone() })?;
-        match systemjs_validator::validate_systemjs_code(&content) {
-            Ok(validation) => {
-                has_system_register = has_system_register || validation.has_system_register;
-            }
-            Err(systemjs_validator::SystemJsValidationError::Parse { message }) => {
-                return Err(Error::ParseJsOutput { path, message });
-            }
-            Err(systemjs_validator::SystemJsValidationError::ForbiddenToken { token }) => {
-                return Err(Error::ForbiddenJsToken { path, token });
+    if expect_systemjs {
+        let mut has_system_register = false;
+        for path in js_files {
+            let content =
+                fs::read_to_string(&path).context(ReadFileSnafu { path: path.clone() })?;
+            match systemjs_validator::validate_systemjs_code(&content) {
+                Ok(validation) => {
+                    has_system_register = has_system_register || validation.has_system_register;
+                }
+                Err(systemjs_validator::SystemJsValidationError::Parse { message }) => {
+                    return Err(Error::ParseJsOutput { path, message });
+                }
+                Err(systemjs_validator::SystemJsValidationError::ForbiddenToken { token }) => {
+                    return Err(Error::ForbiddenJsToken { path, token });
+                }
             }
         }
-    }
 
-    if !has_system_register {
-        return Err(Error::MissingSystemRegister);
+        if !has_system_register {
+            return Err(Error::MissingSystemRegister);
+        }
     }
 
     Ok(())
@@ -836,7 +859,7 @@ struct Timings {
     project_gen_ms: u64,
     component_gen_ms: u64,
     write_project_ms: u64,
-    rollup_ms: u64,
+    build_ms: u64,
     archive_ms: u64,
 }
 
@@ -845,7 +868,8 @@ struct Timings {
 struct Versions {
     forge_job: String,
     forge_components: String,
-    rollup: String,
+    esbuild: String,
+    swc: String,
     node: String,
     pnpm: String,
 }
@@ -855,7 +879,8 @@ impl Versions {
         Self {
             forge_job: env!("CARGO_PKG_VERSION").to_owned(),
             forge_components: detect_forge_components_version().unwrap_or_else(|| "unknown".into()),
-            rollup: detect_rollup_version().unwrap_or_else(|| "unknown".into()),
+            esbuild: detect_node_package_version("esbuild").unwrap_or_else(|| "unknown".into()),
+            swc: detect_node_package_version("@swc/core").unwrap_or_else(|| "unknown".into()),
             node: detect_node_version().unwrap_or_else(|| "unknown".into()),
             pnpm: detect_pnpm_version().unwrap_or_else(|| "unknown".into()),
         }
@@ -920,44 +945,41 @@ fn find_upwards(rel_path: &str) -> Vec<PathBuf> {
     out
 }
 
-fn detect_rollup_version() -> Option<String> {
-    let output = rollup_command_output(&["--version"])?;
-    if let Some(rest) = output.strip_prefix("rollup v") {
-        return Some(rest.split_whitespace().next().unwrap_or(rest).to_owned());
-    }
-    Some(output)
-}
-
-fn rollup_command(args: &[&str]) -> Command {
-    if let Ok(rollup_js) = env::var("FORGE_ROLLUP_JS") {
-        let mut command =
-            Command::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()));
-        command.arg(rollup_js);
-        command.args(args);
-        return command;
-    }
-    if let Ok(rollup_bin) = env::var("FORGE_ROLLUP_BIN") {
-        let mut command = Command::new(rollup_bin);
-        command.args(args);
-        return command;
-    }
-    let mut command = Command::new("pnpm");
-    command.args(["exec", "rollup"]);
-    command.args(args);
+fn build_script_command() -> TokioCommand {
+    let mut command =
+        TokioCommand::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()));
+    command.arg("build.mjs");
     command
 }
 
-fn rollup_command_output(args: &[&str]) -> Option<String> {
-    let output = rollup_command(args).output().ok()?;
-    if !output.status.success() {
-        return None;
+fn detect_node_package_version(package_name: &str) -> Option<String> {
+    if let Ok(node_modules_dir) = env::var("FORGE_NODE_MODULES_DIR") {
+        let package_json = PathBuf::from(node_modules_dir)
+            .join(package_name)
+            .join("package.json");
+        if let Some(version) = read_package_version(&package_json) {
+            return Some(version);
+        }
     }
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    if text.is_empty() { None } else { Some(text) }
+    for package_json in find_upwards(&format!("node_modules/{package_name}/package.json")) {
+        if let Some(version) = read_package_version(&package_json) {
+            return Some(version);
+        }
+    }
+    None
+}
+
+fn read_package_version(package_json: &Path) -> Option<String> {
+    let raw = fs::read_to_string(package_json).ok()?;
+    let value = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
+    value
+        .get("version")
+        .and_then(|value| value.as_str())
+        .map(str::to_owned)
 }
 
 fn command_version(command: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(command).args(args).output().ok()?;
+    let output = StdCommand::new(command).args(args).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -1079,7 +1101,10 @@ enum Error {
         stderr: String,
     },
 
-    #[snafu(display("missing Rollup dist directory {}", path.display()))]
+    #[snafu(display("failed to create Tokio runtime for build script"))]
+    CreateRuntime { source: io::Error },
+
+    #[snafu(display("missing build dist directory {}", path.display()))]
     MissingDistDir { path: PathBuf },
 
     #[snafu(display("FORGE_NODE_MODULES_DIR does not exist: {}", path.display()))]
@@ -1100,7 +1125,7 @@ enum Error {
     #[snafu(display("FORGE_NODE_MODULES_DIR linking is not supported on this platform: {}", path.display()))]
     UnsupportedNodeModulesLink { path: PathBuf },
 
-    #[snafu(display("Rollup dist directory has no JavaScript output: {}", path.display()))]
+    #[snafu(display("build dist directory has no JavaScript output: {}", path.display()))]
     NoJsOutput { path: PathBuf },
 
     #[snafu(display("illegal output: missing System.register"))]

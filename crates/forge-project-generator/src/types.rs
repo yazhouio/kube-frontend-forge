@@ -50,6 +50,15 @@ pub struct BuildMeta {
     pub cluster: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub systemjs: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<BuildFormat>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BuildFormat {
+    Esm,
+    Systemjs,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

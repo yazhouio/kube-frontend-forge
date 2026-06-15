@@ -40,6 +40,6 @@
           }
       }
     ],
-    "build": { "target": "kubesphere-extension", "moduleName": "ff-test", "systemjs": true }
+    "build": { "target": "kubesphere-extension", "moduleName": "ff-test", "format": "systemjs" }
   }
 }

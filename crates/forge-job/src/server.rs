@@ -2,9 +2,9 @@ use std::{
     env, fs, io,
     net::SocketAddr,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use axum::{
@@ -25,6 +25,7 @@ use forge_project_generator::{ExtensionManifest, VirtualFile, unwrap_manifest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tempfile::TempDir;
+use tokio::{io::AsyncReadExt, process::Command as TokioCommand};
 use tower_http::{
     services::ServeDir,
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
@@ -340,9 +341,9 @@ fn build_project(state: &AppState, value: Value) -> Result<BuildOutput> {
     let project_dir = work.path().join("project");
     write_virtual_files(&project_dir, &plan.files)?;
     link_node_modules(&project_dir)?;
-    run_rollup_build(&project_dir)?;
+    run_build_script(&project_dir)?;
     let dist_dir = project_dir.join(&plan.expectations.dist_dir);
-    validate_systemjs_dist(&dist_dir)?;
+    validate_dist(&dist_dir, plan.expectations.systemjs)?;
     let files = collect_virtual_files(&dist_dir)?;
     Ok(BuildOutput {
         _work: work,
@@ -408,73 +409,103 @@ fn link_node_modules(project_dir: &Path) -> Result<()> {
     }
 }
 
-fn run_rollup_build(project_dir: &Path) -> Result<()> {
+fn run_build_script(project_dir: &Path) -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .map_err(|source| {
+            ServerError::internal(format!("failed to create Tokio runtime: {source}"))
+        })?
+        .block_on(run_build_script_async(project_dir))
+}
+
+async fn run_build_script_async(project_dir: &Path) -> Result<()> {
     let timeout = env::var("FORGE_BUILD_TIMEOUT_MS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .map(Duration::from_millis)
         .unwrap_or_else(|| Duration::from_millis(30_000));
 
-    let mut command = rollup_command(&["-c"]);
-    let command_label = "rollup -c".to_owned();
+    let mut command = build_script_command();
+    let command_label = "node build.mjs".to_owned();
     let mut child = command
         .current_dir(project_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    let started = Instant::now();
 
-    loop {
-        if started.elapsed() > timeout {
-            let _ = child.kill();
-            let output = child.wait_with_output()?;
+    let stdout = tokio::spawn(read_pipe(child.stdout.take()));
+    let stderr = tokio::spawn(read_pipe(child.stderr.take()));
+
+    let status = match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(waited) => waited?,
+        Err(_) => {
+            let _ = child.kill().await;
+            let stdout = collect_pipe(stdout).await;
+            let stderr = collect_pipe(stderr).await;
             return Err(ServerError::internal(format!(
                 "{command_label} timed out after {}ms\nstdout:\n{}\nstderr:\n{}",
                 timeout.as_millis(),
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
+                String::from_utf8_lossy(&stdout),
+                String::from_utf8_lossy(&stderr)
             )));
         }
+    };
 
-        if child.try_wait()?.is_some() {
-            let output = child.wait_with_output()?;
-            if output.status.success() {
-                return Ok(());
-            }
-            return Err(ServerError::internal(format!(
-                "{command_label} failed with status {:?}\nstdout:\n{}\nstderr:\n{}",
-                output.status.code(),
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            )));
+    let stdout = collect_pipe(stdout).await;
+    let stderr = collect_pipe(stderr).await;
+    log_build_script_output(&stdout, &stderr);
+    if status.success() {
+        return Ok(());
+    }
+    Err(ServerError::internal(format!(
+        "{command_label} failed with status {:?}\nstdout:\n{}\nstderr:\n{}",
+        status.code(),
+        String::from_utf8_lossy(&stdout),
+        String::from_utf8_lossy(&stderr)
+    )))
+}
+
+async fn read_pipe<T>(pipe: Option<T>) -> Vec<u8>
+where
+    T: tokio::io::AsyncRead + Unpin,
+{
+    let mut output = Vec::new();
+    if let Some(mut pipe) = pipe {
+        let _ = pipe.read_to_end(&mut output).await;
+    }
+    output
+}
+
+async fn collect_pipe(handle: tokio::task::JoinHandle<Vec<u8>>) -> Vec<u8> {
+    handle.await.unwrap_or_default()
+}
+
+fn log_build_script_output(stdout: &[u8], stderr: &[u8]) {
+    for line in String::from_utf8_lossy(stdout).lines() {
+        if !line.trim().is_empty() {
+            tracing::info!(stream = "stdout", "{line}");
         }
-        std::thread::sleep(Duration::from_millis(100));
+    }
+    for line in String::from_utf8_lossy(stderr).lines() {
+        if !line.trim().is_empty() {
+            tracing::info!(stream = "stderr", "{line}");
+        }
     }
 }
 
-fn rollup_command(args: &[&str]) -> Command {
-    if let Ok(rollup_js) = env::var("FORGE_ROLLUP_JS") {
-        let mut command =
-            Command::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()));
-        command.arg(rollup_js);
-        command.args(args);
-        return command;
-    }
-    if let Ok(rollup_bin) = env::var("FORGE_ROLLUP_BIN") {
-        let mut command = Command::new(rollup_bin);
-        command.args(args);
-        return command;
-    }
-    let mut command = Command::new("pnpm");
-    command.args(["exec", "rollup"]);
-    command.args(args);
+fn build_script_command() -> TokioCommand {
+    let mut command =
+        TokioCommand::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()));
+    command.arg("build.mjs");
     command
 }
 
-fn validate_systemjs_dist(dist_dir: &Path) -> Result<()> {
+fn validate_dist(dist_dir: &Path, expect_systemjs: bool) -> Result<()> {
     if !dist_dir.is_dir() {
         return Err(ServerError::internal(format!(
-            "missing Rollup dist directory {}",
+            "missing build dist directory {}",
             dist_dir.display()
         )));
     }
@@ -484,36 +515,39 @@ fn validate_systemjs_dist(dist_dir: &Path) -> Result<()> {
         .collect::<Vec<_>>();
     if js_files.is_empty() {
         return Err(ServerError::internal(format!(
-            "Rollup dist directory has no JavaScript output: {}",
+            "build dist directory has no JavaScript output: {}",
             dist_dir.display()
         )));
     }
 
-    let mut has_system_register = false;
-    for path in js_files {
-        let content = fs::read_to_string(&path)?;
-        match systemjs_validator::validate_systemjs_code(&content) {
-            Ok(validation) => {
-                has_system_register = has_system_register || validation.has_system_register;
-            }
-            Err(systemjs_validator::SystemJsValidationError::Parse { message }) => {
-                return Err(ServerError::internal(format!(
-                    "illegal output {} failed JavaScript parse: {message}",
-                    path.display()
-                )));
-            }
-            Err(systemjs_validator::SystemJsValidationError::ForbiddenToken { token }) => {
-                return Err(ServerError::internal(format!(
-                    "illegal output {} contains forbidden token `{token}`",
-                    path.display()
-                )));
+    if expect_systemjs {
+        let mut has_system_register = false;
+        for path in js_files {
+            let content = fs::read_to_string(&path)?;
+            match systemjs_validator::validate_systemjs_code(&content) {
+                Ok(validation) => {
+                    has_system_register = has_system_register || validation.has_system_register;
+                }
+                Err(systemjs_validator::SystemJsValidationError::Parse { message }) => {
+                    return Err(ServerError::internal(format!(
+                        "illegal output {} failed JavaScript parse: {message}",
+                        path.display()
+                    )));
+                }
+                Err(systemjs_validator::SystemJsValidationError::ForbiddenToken { token }) => {
+                    return Err(ServerError::internal(format!(
+                        "illegal output {} contains forbidden token `{token}`",
+                        path.display()
+                    )));
+                }
             }
         }
-    }
-    if !has_system_register {
-        return Err(ServerError::internal(
-            "illegal output: missing System.register",
-        ));
+
+        if !has_system_register {
+            return Err(ServerError::internal(
+                "illegal output: missing System.register",
+            ));
+        }
     }
     Ok(())
 }

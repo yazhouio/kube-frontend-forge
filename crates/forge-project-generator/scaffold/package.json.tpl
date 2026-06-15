@@ -5,18 +5,14 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "rollup -c"
+    "build": "node build.mjs"
   },
   "dependencies": {
 __DEPENDENCIES__
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^29.0.3",
-    "@rollup/plugin-json": "^6.1.0",
-    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@swc/core": "^1.15.41",
     "esbuild": "^0.27.2",
-    "postcss": "^8.5.6",
-    "rollup": "^4.61.1",
-    "rollup-plugin-postcss": "^4.0.2"
+    "postcss": "^8.5.6"
   }
 }

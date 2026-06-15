@@ -1424,6 +1424,12 @@
         },
         "systemjs": {
           "type": "boolean"
+        },
+        "format": {
+          "enum": [
+            "esm",
+            "systemjs"
+          ]
         }
       }
     }

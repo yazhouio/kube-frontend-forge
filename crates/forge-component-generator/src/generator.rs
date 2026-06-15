@@ -1351,6 +1351,57 @@ mod tests {
     }
 
     #[test]
+    fn crd_page_state_returns_namespace_params_for_namespace_scope() {
+        let raw = serde_json::json!({
+          "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },
+          "dataSources": [
+            {
+              "id": "pageState",
+              "type": "crd-page-state",
+              "config": {
+                "PAGE_ID": "sample-page",
+                "SCOPE": "namespace",
+                "CRD_CONFIG": { "plural": "widgets", "group": "example.io" }
+              }
+            }
+          ],
+          "root": {
+            "id": "root",
+            "meta": { "scope": true, "title": "SamplePage" },
+            "type": "Layout",
+            "props": {
+              "TEXT": {
+                "type": "binding",
+                "source": "pageState",
+                "bind": "params"
+              }
+            }
+          },
+          "context": {}
+        });
+        let page = unwrap_page_schema(raw).unwrap();
+        let code = test_generator().generate_page_code(&page).unwrap();
+        assert_code_contains(&code, r#"const scope = "namespace";"#);
+        assert_code_contains(
+            &code,
+            "const { render: renderProjectSelect, params: projectSelectParams } = useProjectSelect(",
+        );
+        assert_code_contains(
+            &code,
+            "const selectNamespace = projectSelectParams?.namespace;",
+        );
+        assert_code_contains(
+            &code,
+            r#"const resolvedParams = scope === "namespace" ? { ...params, namespace } : params;"#,
+        );
+        assert_code_contains(
+            &code,
+            "const store = useStore({ params: resolvedParams, query: storeQuery }, storeOptions ?? {});",
+        );
+        assert_code_contains(&code, "params: resolvedParams,");
+    }
+
+    #[test]
     fn renders_data_source_hook_name_as_identifier() {
         let raw = serde_json::json!({
           "meta": { "id": "page-1", "name": "Sample", "path": "/sample" },

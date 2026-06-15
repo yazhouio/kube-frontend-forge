@@ -275,10 +275,11 @@ fn validate_dist(dist_dir: &Path, expect_systemjs: bool) -> Result<()> {
         });
     }
 
-    let mut has_system_register = false;
-    for path in js_files {
-        let content = fs::read_to_string(&path).context(ReadFileSnafu { path: path.clone() })?;
-        if expect_systemjs {
+    if expect_systemjs {
+        let mut has_system_register = false;
+        for path in js_files {
+            let content =
+                fs::read_to_string(&path).context(ReadFileSnafu { path: path.clone() })?;
             match systemjs_validator::validate_systemjs_code(&content) {
                 Ok(validation) => {
                     has_system_register = has_system_register || validation.has_system_register;
@@ -290,21 +291,11 @@ fn validate_dist(dist_dir: &Path, expect_systemjs: bool) -> Result<()> {
                     return Err(Error::ForbiddenJsToken { path, token });
                 }
             }
-        } else {
-            match systemjs_validator::validate_systemjs_code(&content) {
-                Ok(_) => {}
-                Err(systemjs_validator::SystemJsValidationError::Parse { message }) => {
-                    return Err(Error::ParseJsOutput { path, message });
-                }
-                Err(systemjs_validator::SystemJsValidationError::ForbiddenToken { token }) => {
-                    return Err(Error::ForbiddenJsToken { path, token });
-                }
-            }
         }
-    }
 
-    if expect_systemjs && !has_system_register {
-        return Err(Error::MissingSystemRegister);
+        if !has_system_register {
+            return Err(Error::MissingSystemRegister);
+        }
     }
 
     Ok(())

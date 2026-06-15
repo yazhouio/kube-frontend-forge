@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build, transform as esbuildTransform } from 'esbuild';
 
 const buildFormat = '__BUILD_FORMAT__';
@@ -42,14 +42,14 @@ function resolveForgeComponentsSource() {
   };
 }
 
-async function timeStage(stage, task) {
+async function timeStage(stage, task, logInfo = console.log, logError = console.error) {
   const started = performance.now();
   try {
     const value = await task();
-    console.log(`forge build stage completed stage=${stage} elapsed_ms=${Math.round(performance.now() - started)}`);
+    logInfo(`forge build stage completed stage=${stage} elapsed_ms=${Math.round(performance.now() - started)}`);
     return value;
   } catch (error) {
-    console.error(`forge build stage failed stage=${stage} elapsed_ms=${Math.round(performance.now() - started)}`);
+    logError(`forge build stage failed stage=${stage} elapsed_ms=${Math.round(performance.now() - started)}`);
     throw error;
   }
 }
@@ -65,9 +65,10 @@ async function copyBuildOutputs() {
   }
 }
 
-async function bundleEsm() {
-  await timeStage('esbuild_bundle', () =>
+async function bundleEsm(stageTimer) {
+  await stageTimer('esbuild_bundle', () =>
     build({
+      absWorkingDir: rootDir,
       entryPoints: ['src/index.ts'],
       outfile: tempEntry,
       bundle: true,
@@ -76,7 +77,7 @@ async function bundleEsm() {
       target: 'es2022',
       jsx: 'transform',
       treeShaking: true,
-      minify: buildFormat === 'esm',
+      minify: true,
       charset: 'utf8',
       legalComments: 'none',
       sourcemap: false,
@@ -103,9 +104,9 @@ async function bundleEsm() {
   );
 }
 
-async function toSystemjs(bundled) {
+async function toSystemjs(bundled, stageTimer) {
   const { transform: swcTransform } = await import('@swc/core');
-  const output = await timeStage('swc_systemjs', () =>
+  const output = await stageTimer('swc_systemjs', () =>
     swcTransform(bundled, {
       filename: 'index.js',
       jsc: {
@@ -124,8 +125,8 @@ async function toSystemjs(bundled) {
   return output.code;
 }
 
-async function minifyJs(code) {
-  const output = await timeStage('esbuild_minify', () =>
+async function minifyJs(code, stageTimer) {
+  const output = await stageTimer('esbuild_minify', () =>
     esbuildTransform(code, {
       loader: 'js',
       target: 'es2022',
@@ -138,22 +139,28 @@ async function minifyJs(code) {
   return output.code;
 }
 
-async function runBuild() {
+export async function runBuild(options = {}) {
+  const logInfo = options.onLog ?? console.log;
+  const logError = options.onError ?? console.error;
+  const stageTimer = (stage, task) => timeStage(stage, task, logInfo, logError);
+
   await rm(tempDir, { recursive: true, force: true });
   await rm(distDir, { recursive: true, force: true });
-  await bundleEsm();
+  await bundleEsm(stageTimer);
 
   const bundled = await readFile(tempEntry, 'utf8');
   const outputCode = buildFormat === 'systemjs'
-    ? await minifyJs(await toSystemjs(bundled))
+    ? await minifyJs(await toSystemjs(bundled, stageTimer), stageTimer)
     : bundled;
 
   await mkdir(distDir, { recursive: true });
   await writeFile(join(distDir, 'index.js'), outputCode);
-  await timeStage('copy_assets', copyBuildOutputs);
+  await stageTimer('copy_assets', copyBuildOutputs);
 }
 
-runBuild().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runBuild().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

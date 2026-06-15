@@ -275,27 +275,24 @@ fn validate_dist(dist_dir: &Path, expect_systemjs: bool) -> Result<()> {
         });
     }
 
-    if expect_systemjs {
-        let mut has_system_register = false;
-        for path in js_files {
-            let content =
-                fs::read_to_string(&path).context(ReadFileSnafu { path: path.clone() })?;
-            match systemjs_validator::validate_systemjs_code(&content) {
-                Ok(validation) => {
-                    has_system_register = has_system_register || validation.has_system_register;
-                }
-                Err(systemjs_validator::SystemJsValidationError::Parse { message }) => {
-                    return Err(Error::ParseJsOutput { path, message });
-                }
-                Err(systemjs_validator::SystemJsValidationError::ForbiddenToken { token }) => {
-                    return Err(Error::ForbiddenJsToken { path, token });
-                }
+    let mut has_system_register = false;
+    for path in js_files {
+        let content = fs::read_to_string(&path).context(ReadFileSnafu { path: path.clone() })?;
+        match systemjs_validator::validate_systemjs_code(&content) {
+            Ok(validation) => {
+                has_system_register |= validation.has_system_register;
+            }
+            Err(systemjs_validator::SystemJsValidationError::Parse { message }) => {
+                return Err(Error::ParseJsOutput { path, message });
+            }
+            Err(systemjs_validator::SystemJsValidationError::ForbiddenToken { token }) => {
+                return Err(Error::ForbiddenJsToken { path, token });
             }
         }
+    }
 
-        if !has_system_register {
-            return Err(Error::MissingSystemRegister);
-        }
+    if expect_systemjs && !has_system_register {
+        return Err(Error::MissingSystemRegister);
     }
 
     Ok(())
@@ -1128,14 +1125,14 @@ enum Error {
     #[snafu(display("build dist directory has no JavaScript output: {}", path.display()))]
     NoJsOutput { path: PathBuf },
 
-    #[snafu(display("illegal output: missing System.register"))]
-    MissingSystemRegister,
-
     #[snafu(display("illegal output {} failed JavaScript parse: {message}", path.display()))]
     ParseJsOutput { path: PathBuf, message: String },
 
     #[snafu(display("illegal output {} contains forbidden token `{token}`", path.display()))]
     ForbiddenJsToken { path: PathBuf, token: &'static str },
+
+    #[snafu(display("illegal output: missing System.register"))]
+    MissingSystemRegister,
 
     #[snafu(display("invalid file path `{path}`"))]
     InvalidFilePath { path: String },

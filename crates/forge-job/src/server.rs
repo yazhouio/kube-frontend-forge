@@ -179,6 +179,7 @@ const useSyncExternalStoreWithSelectorSource = __USE_SYNC_EXTERNAL_STORE_WITH_SE
 
 const reactCjsShimModules = new Map([
   ['use-sync-external-store', useSyncExternalStoreShimSource],
+  ['use-sync-external-store/index.js', useSyncExternalStoreShimSource],
   ['use-sync-external-store/shim', useSyncExternalStoreShimSource],
   ['use-sync-external-store/shim/index.js', useSyncExternalStoreShimSource],
   ['use-sync-external-store/with-selector', useSyncExternalStoreWithSelectorSource],
@@ -1471,6 +1472,7 @@ addr = "0.0.0.0:3000"
         let script = render_build_worker_script();
         assert!(script.contains("const useSyncExternalStoreShimSource = \""));
         assert!(script.contains("useSyncExternalStoreWithSelector"));
+        assert!(script.contains("'use-sync-external-store/index.js'"));
         assert!(!script.contains("__USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE__"));
         assert!(!script.contains("__USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE__"));
     }

@@ -1071,6 +1071,11 @@ mod tests {
                 .contains("useSyncExternalStoreWithSelector")
         );
         assert!(
+            build_config
+                .content
+                .contains("'use-sync-external-store/index.js'")
+        );
+        assert!(
             !build_config
                 .content
                 .contains("__USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE__")

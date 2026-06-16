@@ -187,53 +187,80 @@ const reactCjsShimModules = new Map([
   ['use-sync-external-store/shim/with-selector', useSyncExternalStoreWithSelectorSource],
   ['use-sync-external-store/shim/with-selector.js', useSyncExternalStoreWithSelectorSource],
 ]);
+const forgeBuildExternalPackages = ['esprima'];
 
 function loadBuildDependencies(projectDir) {
   const require = createRequire(join(projectDir, 'package.json'));
   return {
-    esbuild: require('esbuild'),
+    rolldown: require('rolldown'),
+    rolldownExperimental: require('rolldown/experimental'),
     swc: require('@swc/core'),
   };
 }
 
-function resolveForgeComponentsSource(rootDir, buildPlugin) {
+function resolveForgeComponentsSource(rootDir) {
   const forgeComponentsSourceEntry = join(
     rootDir,
     'node_modules/@frontend-forge/forge-components/src/index.ts',
   );
   return {
     name: 'forge-components-source',
-    setup(buildContext) {
+    resolveId(source) {
       if (!isForgeDevMode() || !existsSync(forgeComponentsSourceEntry)) {
         return;
       }
-      buildContext.onResolve({ filter: /^@frontend-forge\/forge-components$/ }, () => ({
-        path: forgeComponentsSourceEntry,
-      }));
+      if (source === '@frontend-forge/forge-components') {
+        return forgeComponentsSourceEntry;
+      }
     },
   };
 }
 
 function resolveReactCjsShims() {
+  const namespace = '\0forge-react-cjs-shims:';
   return {
     name: 'react-cjs-shims-to-esm',
-    setup(build) {
-      build.onResolve({ filter: /^use-sync-external-store(?:\/.*)?$/ }, (args) => {
-        if (!reactCjsShimModules.has(args.path)) {
-          return;
-        }
-        return {
-          path: args.path,
-          namespace: 'forge-react-cjs-shims',
-        };
-      });
-
-      build.onLoad({ filter: /.*/, namespace: 'forge-react-cjs-shims' }, (args) => ({
-        contents: reactCjsShimModules.get(args.path),
-        loader: 'js',
-      }));
+    resolveId(source) {
+      if (reactCjsShimModules.has(source)) {
+        return `${namespace}${source}`;
+      }
+    },
+    load(id) {
+      if (!id.startsWith(namespace)) {
+        return;
+      }
+      return {
+        code: reactCjsShimModules.get(id.slice(namespace.length)),
+        moduleType: 'js',
+      };
     },
   };
+}
+
+function isExternalPackage(id, externalPackages) {
+  return [...externalPackages, ...forgeBuildExternalPackages].some((name) => id === name || id.startsWith(`${name}/`));
+}
+
+function rolldownAssetModuleTypes() {
+  return {
+    '.avif': 'asset',
+    '.gif': 'asset',
+    '.jpg': 'asset',
+    '.jpeg': 'asset',
+    '.png': 'asset',
+    '.svg': 'asset',
+    '.webp': 'asset',
+    '.woff': 'asset',
+    '.woff2': 'asset',
+    '.ttf': 'asset',
+    '.eot': 'asset',
+  };
+}
+
+function minifyWithRolldown(rolldownExperimental, code) {
+  return rolldownExperimental.minifySync('index.js', code, {
+    sourcemap: false,
+  }).code;
 }
 
 async function timeStage(stage, task, logs, stream = 'stdout') {
@@ -268,47 +295,36 @@ async function runProjectBuild(request, logs) {
     throw new Error(`unsupported build format: ${buildFormat}`);
   }
 
-  const { esbuild, swc } = loadBuildDependencies(rootDir);
-  const tempDir = join(rootDir, '.forge-esbuild');
+  const { rolldown, rolldownExperimental, swc } = loadBuildDependencies(rootDir);
+  const tempDir = join(rootDir, '.forge-rolldown');
   const distDir = join(rootDir, 'dist');
   const tempEntry = join(tempDir, 'index.js');
-  const external = externalPackages.flatMap((name) => [name, `${name}/*`]);
   const stageTimer = (stage, task) => timeStage(stage, task, logs);
 
   await rm(tempDir, { recursive: true, force: true });
   await rm(distDir, { recursive: true, force: true });
-  await stageTimer('esbuild_bundle', () =>
-    esbuild.build({
-      absWorkingDir: rootDir,
-      entryPoints: ['src/index.ts'],
-      outfile: tempEntry,
-      bundle: true,
-      format: 'esm',
+  await stageTimer('rolldown_bundle', () =>
+    rolldown.build({
+      cwd: rootDir,
+      input: 'src/index.ts',
+      external: (id) => isExternalPackage(id, externalPackages),
       platform: 'browser',
-      target: 'es2022',
-      jsx: 'transform',
-      treeShaking: true,
-      minify: true,
-      charset: 'utf8',
-      legalComments: 'none',
-      sourcemap: false,
-      assetNames: 'assets/[name]-[hash]',
-      external,
-      define: {
-        'process.env.NODE_ENV': JSON.stringify('production'),
+      treeshake: true,
+      moduleTypes: rolldownAssetModuleTypes(),
+      transform: {
+        define: {
+          'process.env.NODE_ENV': JSON.stringify('production'),
+        },
+        jsx: 'react',
       },
-      loader: {
-        '.avif': 'file',
-        '.gif': 'file',
-        '.jpg': 'file',
-        '.jpeg': 'file',
-        '.png': 'file',
-        '.svg': 'file',
-        '.webp': 'file',
-        '.woff': 'file',
-        '.woff2': 'file',
-        '.ttf': 'file',
-        '.eot': 'file',
+      output: {
+        dir: tempDir,
+        entryFileNames: 'index.js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        format: 'esm',
+        minify: true,
+        sourcemap: false,
       },
       plugins: [
         resolveForgeComponentsSource(rootDir),
@@ -337,17 +353,7 @@ async function runProjectBuild(request, logs) {
       });
       return output.code;
     });
-    outputCode = await stageTimer('esbuild_minify', async () => {
-      const output = await esbuild.transform(systemjs, {
-        loader: 'js',
-        target: 'es2022',
-        minify: true,
-        charset: 'utf8',
-        legalComments: 'none',
-        sourcemap: false,
-      });
-      return output.code;
-    });
+    outputCode = await stageTimer('rolldown_minify', () => minifyWithRolldown(rolldownExperimental, systemjs));
   }
 
   await mkdir(distDir, { recursive: true });

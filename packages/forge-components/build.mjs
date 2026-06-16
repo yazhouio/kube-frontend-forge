@@ -1,5 +1,21 @@
-import { build } from "esbuild";
+import { build } from "rolldown";
 import { spawn } from "node:child_process";
+
+const externalPackages = [
+  "react",
+  "react-dom",
+  "react-router-dom",
+  "react/jsx-runtime",
+  "react/jsx-dev-runtime",
+  "swr",
+  "@kubed/components",
+  "@kubed/hooks",
+  "@kubed/code-editor",
+  "@kubed/icons",
+  "zustand",
+  "styled-components",
+  "esprima",
+];
 
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {
@@ -19,29 +35,19 @@ function runCommand(command, args) {
 
 async function runBuild() {
   await build({
-    entryPoints: ["src/index.ts"],
-    bundle: true,
-    outdir: "dist",
-    format: "esm",
+    input: "src/index.ts",
     platform: "browser",
-    jsx: "automatic",
-    external: [
-      "react",
-      "react-dom",
-      "react-router-dom",
-      "react/jsx-runtime",
-      "react/jsx-dev-runtime",
-      "swr",
-      "swr/*",
-      "@kubed/components",
-      "@kubed/hooks",
-      "@kubed/code-editor",
-      "@kubed/icons",
-      "zustand",
-      "zustand/*",
-      "styled-components",
-    ],
-    sourcemap: true,
+    transform: {
+      jsx: "react-jsx",
+    },
+    external: (id) =>
+      externalPackages.some((name) => id === name || id.startsWith(`${name}/`)),
+    output: {
+      dir: "dist",
+      entryFileNames: "index.js",
+      format: "esm",
+      sourcemap: true,
+    },
   });
 
   await runCommand("tsc", ["-p", "tsconfig.json"]);

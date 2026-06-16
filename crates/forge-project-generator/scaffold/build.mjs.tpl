@@ -2,7 +2,8 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { build, transform as esbuildTransform } from 'esbuild';
+import { build as rolldownBuild } from 'rolldown';
+import { minifySync as rolldownMinifySync } from 'rolldown/experimental';
 
 const buildFormat = '__BUILD_FORMAT__';
 const externalPackages = __EXTERNAL_PACKAGES__;
@@ -17,7 +18,7 @@ const isForgeDevMode = () =>
   process.env.NODE_ENV === 'development';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
-const tempDir = join(rootDir, '.forge-esbuild');
+const tempDir = join(rootDir, '.forge-rolldown');
 const distDir = join(rootDir, 'dist');
 const tempEntry = join(tempDir, 'index.js');
 const tempStyle = join(tempDir, 'index.css');
@@ -25,7 +26,6 @@ const forgeComponentsSourceEntry = fileURLToPath(
   new URL('./node_modules/@frontend-forge/forge-components/src/index.ts', import.meta.url),
 );
 
-const external = externalPackages.flatMap((name) => [name, `${name}/*`]);
 const hasForgeComponentsSource = () => isForgeDevMode() && existsSync(forgeComponentsSourceEntry);
 
 const useSyncExternalStoreShimSource = __USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE__;
@@ -41,41 +41,67 @@ const reactCjsShimModules = new Map([
   ['use-sync-external-store/shim/with-selector', useSyncExternalStoreWithSelectorSource],
   ['use-sync-external-store/shim/with-selector.js', useSyncExternalStoreWithSelectorSource],
 ]);
+const forgeBuildExternalPackages = ['esprima'];
 
 function resolveForgeComponentsSource() {
   return {
     name: 'forge-components-source',
-    setup(build) {
+    resolveId(source) {
       if (!hasForgeComponentsSource()) {
         return;
       }
-      build.onResolve({ filter: /^@frontend-forge\/forge-components$/ }, () => ({
-        path: forgeComponentsSourceEntry,
-      }));
+      if (source === '@frontend-forge/forge-components') {
+        return forgeComponentsSourceEntry;
+      }
     },
   };
 }
 
 function resolveReactCjsShims() {
+  const namespace = '\0forge-react-cjs-shims:';
   return {
     name: 'react-cjs-shims-to-esm',
-    setup(build) {
-      build.onResolve({ filter: /^use-sync-external-store(?:\/.*)?$/ }, (args) => {
-        if (!reactCjsShimModules.has(args.path)) {
-          return;
-        }
-        return {
-          path: args.path,
-          namespace: 'forge-react-cjs-shims',
-        };
-      });
-
-      build.onLoad({ filter: /.*/, namespace: 'forge-react-cjs-shims' }, (args) => ({
-        contents: reactCjsShimModules.get(args.path),
-        loader: 'js',
-      }));
+    resolveId(source) {
+      if (reactCjsShimModules.has(source)) {
+        return `${namespace}${source}`;
+      }
+    },
+    load(id) {
+      if (!id.startsWith(namespace)) {
+        return;
+      }
+      return {
+        code: reactCjsShimModules.get(id.slice(namespace.length)),
+        moduleType: 'js',
+      };
     },
   };
+}
+
+function isExternalPackage(id) {
+  return [...externalPackages, ...forgeBuildExternalPackages].some((name) => id === name || id.startsWith(`${name}/`));
+}
+
+function rolldownAssetModuleTypes() {
+  return {
+    '.avif': 'asset',
+    '.gif': 'asset',
+    '.jpg': 'asset',
+    '.jpeg': 'asset',
+    '.png': 'asset',
+    '.svg': 'asset',
+    '.webp': 'asset',
+    '.woff': 'asset',
+    '.woff2': 'asset',
+    '.ttf': 'asset',
+    '.eot': 'asset',
+  };
+}
+
+function minifyWithRolldown(code) {
+  return rolldownMinifySync('index.js', code, {
+    sourcemap: false,
+  }).code;
 }
 
 async function timeStage(stage, task, logInfo = console.log, logError = console.error) {
@@ -102,38 +128,28 @@ async function copyBuildOutputs() {
 }
 
 async function bundleEsm(stageTimer) {
-  await stageTimer('esbuild_bundle', () =>
-    build({
-      absWorkingDir: rootDir,
-      entryPoints: ['src/index.ts'],
-      outfile: tempEntry,
-      bundle: true,
-      format: 'esm',
+  await stageTimer('rolldown_bundle', () =>
+    rolldownBuild({
+      cwd: rootDir,
+      input: 'src/index.ts',
+      external: isExternalPackage,
       platform: 'browser',
-      target: 'es2022',
-      jsx: 'transform',
-      treeShaking: true,
-      minify: true,
-      charset: 'utf8',
-      legalComments: 'none',
-      sourcemap: false,
-      assetNames: 'assets/[name]-[hash]',
-      external,
-      define: {
-        'process.env.NODE_ENV': JSON.stringify('production'),
+      treeshake: true,
+      moduleTypes: rolldownAssetModuleTypes(),
+      transform: {
+        define: {
+          'process.env.NODE_ENV': JSON.stringify('production'),
+        },
+        jsx: 'react',
       },
-      loader: {
-        '.avif': 'file',
-        '.gif': 'file',
-        '.jpg': 'file',
-        '.jpeg': 'file',
-        '.png': 'file',
-        '.svg': 'file',
-        '.webp': 'file',
-        '.woff': 'file',
-        '.woff2': 'file',
-        '.ttf': 'file',
-        '.eot': 'file',
+      output: {
+        dir: tempDir,
+        entryFileNames: 'index.js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        format: 'esm',
+        minify: true,
+        sourcemap: false,
       },
       plugins: [
         resolveForgeComponentsSource(),
@@ -165,17 +181,7 @@ async function toSystemjs(bundled, stageTimer) {
 }
 
 async function minifyJs(code, stageTimer) {
-  const output = await stageTimer('esbuild_minify', () =>
-    esbuildTransform(code, {
-      loader: 'js',
-      target: 'es2022',
-      minify: true,
-      charset: 'utf8',
-      legalComments: 'none',
-      sourcemap: false,
-    }),
-  );
-  return output.code;
+  return stageTimer('rolldown_minify', () => minifyWithRolldown(code));
 }
 
 export async function runBuild(options = {}) {

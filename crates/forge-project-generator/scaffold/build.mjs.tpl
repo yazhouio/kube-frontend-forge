@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { build, transform as esbuildTransform } from 'esbuild';
+import { build as tsdownBuild } from 'tsdown';
 
 const buildFormat = '__BUILD_FORMAT__';
 const externalPackages = __EXTERNAL_PACKAGES__;
@@ -17,15 +17,17 @@ const isForgeDevMode = () =>
   process.env.NODE_ENV === 'development';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
-const tempDir = join(rootDir, '.forge-esbuild');
+const tempDir = join(rootDir, '.forge-tsdown');
 const distDir = join(rootDir, 'dist');
 const tempEntry = join(tempDir, 'index.js');
 const tempStyle = join(tempDir, 'index.css');
+const systemjsEntry = join(tempDir, 'systemjs-entry.js');
+const systemjsOutDir = join(tempDir, 'systemjs');
+const systemjsOutput = join(systemjsOutDir, 'index.js');
 const forgeComponentsSourceEntry = fileURLToPath(
   new URL('./node_modules/@frontend-forge/forge-components/src/index.ts', import.meta.url),
 );
 
-const external = externalPackages.flatMap((name) => [name, `${name}/*`]);
 const hasForgeComponentsSource = () => isForgeDevMode() && existsSync(forgeComponentsSourceEntry);
 
 const useSyncExternalStoreShimSource = __USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE__;
@@ -41,39 +43,99 @@ const reactCjsShimModules = new Map([
   ['use-sync-external-store/shim/with-selector', useSyncExternalStoreWithSelectorSource],
   ['use-sync-external-store/shim/with-selector.js', useSyncExternalStoreWithSelectorSource],
 ]);
+const forgeBuildExternalPackages = ['esprima'];
 
 function resolveForgeComponentsSource() {
   return {
     name: 'forge-components-source',
-    setup(build) {
+    resolveId(source) {
       if (!hasForgeComponentsSource()) {
         return;
       }
-      build.onResolve({ filter: /^@frontend-forge\/forge-components$/ }, () => ({
-        path: forgeComponentsSourceEntry,
-      }));
+      if (source === '@frontend-forge/forge-components') {
+        return forgeComponentsSourceEntry;
+      }
     },
   };
 }
 
 function resolveReactCjsShims() {
+  const namespace = '\0forge-react-cjs-shims:';
   return {
     name: 'react-cjs-shims-to-esm',
-    setup(build) {
-      build.onResolve({ filter: /^use-sync-external-store(?:\/.*)?$/ }, (args) => {
-        if (!reactCjsShimModules.has(args.path)) {
-          return;
-        }
-        return {
-          path: args.path,
-          namespace: 'forge-react-cjs-shims',
-        };
-      });
+    resolveId(source) {
+      if (reactCjsShimModules.has(source)) {
+        return `${namespace}${source}`;
+      }
+    },
+    load(id) {
+      if (!id.startsWith(namespace)) {
+        return;
+      }
+      return {
+        code: reactCjsShimModules.get(id.slice(namespace.length)),
+        moduleType: 'js',
+      };
+    },
+  };
+}
 
-      build.onLoad({ filter: /.*/, namespace: 'forge-react-cjs-shims' }, (args) => ({
-        contents: reactCjsShimModules.get(args.path),
-        loader: 'js',
-      }));
+function isExternalPackage(id) {
+  return [...externalPackages, ...forgeBuildExternalPackages].some((name) => id === name || id.startsWith(`${name}/`));
+}
+
+function tsdownAssetLoaders() {
+  return {
+    '.avif': 'asset',
+    '.gif': 'asset',
+    '.jpg': 'asset',
+    '.jpeg': 'asset',
+    '.png': 'asset',
+    '.svg': 'asset',
+    '.webp': 'asset',
+    '.woff': 'asset',
+    '.woff2': 'asset',
+    '.ttf': 'asset',
+    '.eot': 'asset',
+  };
+}
+
+function tsdownBuildOptions({ entry, outDir, minify, plugins = [] }) {
+  return {
+    config: false,
+    cwd: rootDir,
+    entry: { index: entry },
+    outDir,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    clean: true,
+    dts: false,
+    fixedExtension: false,
+    logLevel: 'error',
+    minify,
+    report: false,
+    sourcemap: false,
+    tsconfig: false,
+    define: {
+      'process.env.NODE_ENV': JSON.stringify('production'),
+    },
+    deps: {
+      neverBundle: isExternalPackage,
+      alwaysBundle: (id) => !isExternalPackage(id),
+      onlyBundle: false,
+    },
+    loader: tsdownAssetLoaders(),
+    plugins,
+    inputOptions: {
+      transform: {
+        jsx: 'react',
+      },
+    },
+    outputOptions: {
+      entryFileNames: 'index.js',
+      assetFileNames: 'assets/[name]-[hash][extname]',
+      chunkFileNames: 'assets/[name]-[hash].js',
     },
   };
 }
@@ -102,44 +164,16 @@ async function copyBuildOutputs() {
 }
 
 async function bundleEsm(stageTimer) {
-  await stageTimer('esbuild_bundle', () =>
-    build({
-      absWorkingDir: rootDir,
-      entryPoints: ['src/index.ts'],
-      outfile: tempEntry,
-      bundle: true,
-      format: 'esm',
-      platform: 'browser',
-      target: 'es2022',
-      jsx: 'transform',
-      treeShaking: true,
+  await stageTimer('tsdown_bundle', () =>
+    tsdownBuild(tsdownBuildOptions({
+      entry: 'src/index.ts',
+      outDir: tempDir,
       minify: true,
-      charset: 'utf8',
-      legalComments: 'none',
-      sourcemap: false,
-      assetNames: 'assets/[name]-[hash]',
-      external,
-      define: {
-        'process.env.NODE_ENV': JSON.stringify('production'),
-      },
-      loader: {
-        '.avif': 'file',
-        '.gif': 'file',
-        '.jpg': 'file',
-        '.jpeg': 'file',
-        '.png': 'file',
-        '.svg': 'file',
-        '.webp': 'file',
-        '.woff': 'file',
-        '.woff2': 'file',
-        '.ttf': 'file',
-        '.eot': 'file',
-      },
       plugins: [
         resolveForgeComponentsSource(),
         resolveReactCjsShims(),
       ],
-    }),
+    })),
   );
 }
 
@@ -165,17 +199,16 @@ async function toSystemjs(bundled, stageTimer) {
 }
 
 async function minifyJs(code, stageTimer) {
-  const output = await stageTimer('esbuild_minify', () =>
-    esbuildTransform(code, {
-      loader: 'js',
-      target: 'es2022',
+  await mkdir(tempDir, { recursive: true });
+  await writeFile(systemjsEntry, code);
+  await stageTimer('tsdown_minify', () =>
+    tsdownBuild(tsdownBuildOptions({
+      entry: systemjsEntry,
+      outDir: systemjsOutDir,
       minify: true,
-      charset: 'utf8',
-      legalComments: 'none',
-      sourcemap: false,
-    }),
+    })),
   );
-  return output.code;
+  return readFile(systemjsOutput, 'utf8');
 }
 
 export async function runBuild(options = {}) {

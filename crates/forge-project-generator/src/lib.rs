@@ -1090,18 +1090,22 @@ mod tests {
                 .content
                 .contains("@frontend-forge/forge-components/src/index.ts")
         );
-        assert!(build_config.content.contains("build({"));
-        assert!(build_config.content.contains("absWorkingDir: rootDir"));
+        assert!(build_config.content.contains("tsdownBuild("));
+        assert!(build_config.content.contains("cwd: rootDir"));
         assert!(build_config.content.contains("format: 'esm'"));
         assert!(build_config.content.contains("minify: true"));
         assert!(build_config.content.contains("type: 'systemjs'"));
-        assert!(build_config.content.contains("esbuild_minify"));
+        assert!(build_config.content.contains("tsdown_minify"));
+        assert!(
+            build_config
+                .content
+                .contains("forgeBuildExternalPackages = ['esprima']")
+        );
         assert!(
             build_config
                 .content
                 .contains("export async function runBuild")
         );
-        assert!(build_config.content.contains("charset: 'utf8'"));
         assert!(build_config.content.contains("process.env.NODE_ENV"));
         assert!(!build_config.content.contains("__MODULE_NAME_JSON__"));
     }

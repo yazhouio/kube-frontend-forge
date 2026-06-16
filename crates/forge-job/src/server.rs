@@ -191,47 +191,107 @@ const reactCjsShimModules = new Map([
 function loadBuildDependencies(projectDir) {
   const require = createRequire(join(projectDir, 'package.json'));
   return {
-    esbuild: require('esbuild'),
+    tsdown: require('tsdown'),
     swc: require('@swc/core'),
   };
 }
 
-function resolveForgeComponentsSource(rootDir, buildPlugin) {
+function resolveForgeComponentsSource(rootDir) {
   const forgeComponentsSourceEntry = join(
     rootDir,
     'node_modules/@frontend-forge/forge-components/src/index.ts',
   );
   return {
     name: 'forge-components-source',
-    setup(buildContext) {
+    resolveId(source) {
       if (!isForgeDevMode() || !existsSync(forgeComponentsSourceEntry)) {
         return;
       }
-      buildContext.onResolve({ filter: /^@frontend-forge\/forge-components$/ }, () => ({
-        path: forgeComponentsSourceEntry,
-      }));
+      if (source === '@frontend-forge/forge-components') {
+        return forgeComponentsSourceEntry;
+      }
     },
   };
 }
 
 function resolveReactCjsShims() {
+  const namespace = '\0forge-react-cjs-shims:';
   return {
     name: 'react-cjs-shims-to-esm',
-    setup(build) {
-      build.onResolve({ filter: /^use-sync-external-store(?:\/.*)?$/ }, (args) => {
-        if (!reactCjsShimModules.has(args.path)) {
-          return;
-        }
-        return {
-          path: args.path,
-          namespace: 'forge-react-cjs-shims',
-        };
-      });
+    resolveId(source) {
+      if (reactCjsShimModules.has(source)) {
+        return `${namespace}${source}`;
+      }
+    },
+    load(id) {
+      if (!id.startsWith(namespace)) {
+        return;
+      }
+      return {
+        code: reactCjsShimModules.get(id.slice(namespace.length)),
+        moduleType: 'js',
+      };
+    },
+  };
+}
+const forgeBuildExternalPackages = ['esprima'];
 
-      build.onLoad({ filter: /.*/, namespace: 'forge-react-cjs-shims' }, (args) => ({
-        contents: reactCjsShimModules.get(args.path),
-        loader: 'js',
-      }));
+function isExternalPackage(id, externalPackages) {
+  return [...externalPackages, ...forgeBuildExternalPackages].some((name) => id === name || id.startsWith(`${name}/`));
+}
+
+function tsdownAssetLoaders() {
+  return {
+    '.avif': 'asset',
+    '.gif': 'asset',
+    '.jpg': 'asset',
+    '.jpeg': 'asset',
+    '.png': 'asset',
+    '.svg': 'asset',
+    '.webp': 'asset',
+    '.woff': 'asset',
+    '.woff2': 'asset',
+    '.ttf': 'asset',
+    '.eot': 'asset',
+  };
+}
+
+function tsdownBuildOptions(rootDir, externalPackages, { entry, outDir, minify, plugins = [] }) {
+  return {
+    config: false,
+    cwd: rootDir,
+    entry: { index: entry },
+    outDir,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    clean: true,
+    dts: false,
+    fixedExtension: false,
+    logLevel: 'error',
+    minify,
+    report: false,
+    sourcemap: false,
+    tsconfig: false,
+    define: {
+      'process.env.NODE_ENV': JSON.stringify('production'),
+    },
+    deps: {
+      neverBundle: (id) => isExternalPackage(id, externalPackages),
+      alwaysBundle: (id) => !isExternalPackage(id, externalPackages),
+      onlyBundle: false,
+    },
+    loader: tsdownAssetLoaders(),
+    plugins,
+    inputOptions: {
+      transform: {
+        jsx: 'react',
+      },
+    },
+    outputOptions: {
+      entryFileNames: 'index.js',
+      assetFileNames: 'assets/[name]-[hash][extname]',
+      chunkFileNames: 'assets/[name]-[hash].js',
     },
   };
 }
@@ -268,53 +328,27 @@ async function runProjectBuild(request, logs) {
     throw new Error(`unsupported build format: ${buildFormat}`);
   }
 
-  const { esbuild, swc } = loadBuildDependencies(rootDir);
-  const tempDir = join(rootDir, '.forge-esbuild');
+  const { tsdown, swc } = loadBuildDependencies(rootDir);
+  const tempDir = join(rootDir, '.forge-tsdown');
   const distDir = join(rootDir, 'dist');
   const tempEntry = join(tempDir, 'index.js');
-  const external = externalPackages.flatMap((name) => [name, `${name}/*`]);
+  const systemjsEntry = join(tempDir, 'systemjs-entry.js');
+  const systemjsOutDir = join(tempDir, 'systemjs');
+  const systemjsOutput = join(systemjsOutDir, 'index.js');
   const stageTimer = (stage, task) => timeStage(stage, task, logs);
 
   await rm(tempDir, { recursive: true, force: true });
   await rm(distDir, { recursive: true, force: true });
-  await stageTimer('esbuild_bundle', () =>
-    esbuild.build({
-      absWorkingDir: rootDir,
-      entryPoints: ['src/index.ts'],
-      outfile: tempEntry,
-      bundle: true,
-      format: 'esm',
-      platform: 'browser',
-      target: 'es2022',
-      jsx: 'transform',
-      treeShaking: true,
+  await stageTimer('tsdown_bundle', () =>
+    tsdown.build(tsdownBuildOptions(rootDir, externalPackages, {
+      entry: 'src/index.ts',
+      outDir: tempDir,
       minify: true,
-      charset: 'utf8',
-      legalComments: 'none',
-      sourcemap: false,
-      assetNames: 'assets/[name]-[hash]',
-      external,
-      define: {
-        'process.env.NODE_ENV': JSON.stringify('production'),
-      },
-      loader: {
-        '.avif': 'file',
-        '.gif': 'file',
-        '.jpg': 'file',
-        '.jpeg': 'file',
-        '.png': 'file',
-        '.svg': 'file',
-        '.webp': 'file',
-        '.woff': 'file',
-        '.woff2': 'file',
-        '.ttf': 'file',
-        '.eot': 'file',
-      },
       plugins: [
         resolveForgeComponentsSource(rootDir),
         resolveReactCjsShims(),
       ],
-    }),
+    })),
   );
 
   const bundled = await readFile(tempEntry, 'utf8');
@@ -337,17 +371,16 @@ async function runProjectBuild(request, logs) {
       });
       return output.code;
     });
-    outputCode = await stageTimer('esbuild_minify', async () => {
-      const output = await esbuild.transform(systemjs, {
-        loader: 'js',
-        target: 'es2022',
+    await mkdir(tempDir, { recursive: true });
+    await writeFile(systemjsEntry, systemjs);
+    await stageTimer('tsdown_minify', () =>
+      tsdown.build(tsdownBuildOptions(rootDir, externalPackages, {
+        entry: systemjsEntry,
+        outDir: systemjsOutDir,
         minify: true,
-        charset: 'utf8',
-        legalComments: 'none',
-        sourcemap: false,
-      });
-      return output.code;
-    });
+      })),
+    );
+    outputCode = await readFile(systemjsOutput, 'utf8');
   }
 
   await mkdir(distDir, { recursive: true });

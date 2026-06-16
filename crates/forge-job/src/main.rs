@@ -868,7 +868,7 @@ struct Timings {
 struct Versions {
     forge_job: String,
     forge_components: String,
-    esbuild: String,
+    tsdown: String,
     swc: String,
     node: String,
     pnpm: String,
@@ -879,7 +879,7 @@ impl Versions {
         Self {
             forge_job: env!("CARGO_PKG_VERSION").to_owned(),
             forge_components: detect_forge_components_version().unwrap_or_else(|| "unknown".into()),
-            esbuild: detect_node_package_version("esbuild").unwrap_or_else(|| "unknown".into()),
+            tsdown: detect_node_package_version("tsdown").unwrap_or_else(|| "unknown".into()),
             swc: detect_node_package_version("@swc/core").unwrap_or_else(|| "unknown".into()),
             node: detect_node_version().unwrap_or_else(|| "unknown".into()),
             pnpm: detect_pnpm_version().unwrap_or_else(|| "unknown".into()),

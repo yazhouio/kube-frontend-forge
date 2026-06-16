@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     sync::{
-        Arc,
+        Arc, LazyLock,
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, Instant},
@@ -24,7 +24,10 @@ use figment::{
 };
 use flate2::{Compression, write::GzEncoder};
 use forge_core::ForgeCore;
-use forge_project_generator::{EXTERNAL_PACKAGES, ExtensionManifest, VirtualFile, unwrap_manifest};
+use forge_project_generator::{
+    EXTERNAL_PACKAGES, ExtensionManifest, USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE,
+    USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE, VirtualFile, unwrap_manifest,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tempfile::TempDir;
@@ -64,7 +67,29 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
     ),
 ];
 
-const BUILD_WORKER_SCRIPT: &str = r#"
+static BUILD_WORKER_SCRIPT: LazyLock<String> = LazyLock::new(render_build_worker_script);
+
+fn render_build_worker_script() -> String {
+    let replacements = [
+        (
+            "__USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE__",
+            USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE,
+        ),
+        (
+            "__USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE__",
+            USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE,
+        ),
+    ];
+    let mut script = BUILD_WORKER_SCRIPT_TEMPLATE.to_owned();
+    for (placeholder, source) in replacements {
+        let source = serde_json::to_string(source)
+            .expect("React CJS shim source must serialize as a JavaScript string literal");
+        script = script.replace(placeholder, &source);
+    }
+    script
+}
+
+const BUILD_WORKER_SCRIPT_TEMPLATE: &str = r#"
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -149,6 +174,20 @@ const isForgeDevMode = () =>
   devModeValues.has((process.env.FORGE_DEV_MODE ?? '').toLowerCase()) ||
   process.env.NODE_ENV === 'development';
 
+const useSyncExternalStoreShimSource = __USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE__;
+const useSyncExternalStoreWithSelectorSource = __USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE__;
+
+const reactCjsShimModules = new Map([
+  ['use-sync-external-store', useSyncExternalStoreShimSource],
+  ['use-sync-external-store/index.js', useSyncExternalStoreShimSource],
+  ['use-sync-external-store/shim', useSyncExternalStoreShimSource],
+  ['use-sync-external-store/shim/index.js', useSyncExternalStoreShimSource],
+  ['use-sync-external-store/with-selector', useSyncExternalStoreWithSelectorSource],
+  ['use-sync-external-store/with-selector.js', useSyncExternalStoreWithSelectorSource],
+  ['use-sync-external-store/shim/with-selector', useSyncExternalStoreWithSelectorSource],
+  ['use-sync-external-store/shim/with-selector.js', useSyncExternalStoreWithSelectorSource],
+]);
+
 function loadBuildDependencies(projectDir) {
   const require = createRequire(join(projectDir, 'package.json'));
   return {
@@ -170,6 +209,28 @@ function resolveForgeComponentsSource(rootDir, buildPlugin) {
       }
       buildContext.onResolve({ filter: /^@frontend-forge\/forge-components$/ }, () => ({
         path: forgeComponentsSourceEntry,
+      }));
+    },
+  };
+}
+
+function resolveReactCjsShims() {
+  return {
+    name: 'react-cjs-shims-to-esm',
+    setup(build) {
+      build.onResolve({ filter: /^use-sync-external-store(?:\/.*)?$/ }, (args) => {
+        if (!reactCjsShimModules.has(args.path)) {
+          return;
+        }
+        return {
+          path: args.path,
+          namespace: 'forge-react-cjs-shims',
+        };
+      });
+
+      build.onLoad({ filter: /.*/, namespace: 'forge-react-cjs-shims' }, (args) => ({
+        contents: reactCjsShimModules.get(args.path),
+        loader: 'js',
       }));
     },
   };
@@ -249,7 +310,10 @@ async function runProjectBuild(request, logs) {
         '.ttf': 'file',
         '.eot': 'file',
       },
-      plugins: [resolveForgeComponentsSource(rootDir)],
+      plugins: [
+        resolveForgeComponentsSource(rootDir),
+        resolveReactCjsShims(),
+      ],
     }),
   );
 
@@ -631,7 +695,7 @@ impl BuildWorkerState {
             TokioCommand::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()))
                 .arg("--input-type=module")
                 .arg("--eval")
-                .arg(BUILD_WORKER_SCRIPT)
+                .arg(BUILD_WORKER_SCRIPT.as_str())
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -1332,7 +1396,7 @@ mod tests {
 
     use super::{
         ApiSuccess, ProjectFilesPayload, ServerError, normalize_static_prefix, parse_server_config,
-        parse_server_options_from,
+        parse_server_options_from, render_build_worker_script,
     };
 
     #[test]
@@ -1401,6 +1465,16 @@ addr = "0.0.0.0:3000"
         .expect("server config should parse");
 
         assert_eq!(config.addr, "0.0.0.0:3000");
+    }
+
+    #[test]
+    fn build_worker_script_inlines_react_cjs_shims() {
+        let script = render_build_worker_script();
+        assert!(script.contains("const useSyncExternalStoreShimSource = \""));
+        assert!(script.contains("useSyncExternalStoreWithSelector"));
+        assert!(script.contains("'use-sync-external-store/index.js'"));
+        assert!(!script.contains("__USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE__"));
+        assert!(!script.contains("__USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE__"));
     }
 
     #[test]

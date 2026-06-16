@@ -20,6 +20,9 @@ use tokio::{io::AsyncReadExt, process::Command as TokioCommand};
 
 mod systemjs_validator;
 
+#[cfg(feature = "rspack-build")]
+mod rspack_build;
+
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 static MANIFEST_VALIDATOR: LazyLock<jsonschema::Validator> = LazyLock::new(|| {
@@ -128,7 +131,7 @@ fn run_build(args: BuildArgs) -> Result<()> {
         };
 
         let build_started = Instant::now();
-        run_build_script(&project_dir)?;
+        run_project_build(&project_dir, &plan)?;
         timings.build_ms = elapsed_ms(build_started);
 
         let dist_dir = project_dir.join(&plan.expectations.dist_dir);
@@ -180,6 +183,43 @@ fn run_build(args: BuildArgs) -> Result<()> {
             Err(error)
         }
     }
+}
+
+fn run_project_build(project_dir: &Path, plan: &BuildPlan) -> Result<()> {
+    match build_engine()? {
+        BuildEngine::NodeScript => run_build_script(project_dir),
+        BuildEngine::RspackRust => run_rspack_build(project_dir, plan),
+    }
+}
+
+fn build_engine() -> Result<BuildEngine> {
+    let value = env::var("FORGE_BUILD_ENGINE").unwrap_or_else(|_| "node".to_owned());
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" | "node" | "build.mjs" | "esbuild" => Ok(BuildEngine::NodeScript),
+        "rspack" | "rspack-rust" => Ok(BuildEngine::RspackRust),
+        _ => Err(Error::InvalidBuildEngine { value }),
+    }
+}
+
+enum BuildEngine {
+    NodeScript,
+    RspackRust,
+}
+
+#[cfg(feature = "rspack-build")]
+fn run_rspack_build(project_dir: &Path, plan: &BuildPlan) -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .context(CreateRuntimeSnafu)?
+        .block_on(rspack_build::build_project(project_dir, plan))
+        .map_err(|message| Error::RspackBuild { message })
+}
+
+#[cfg(not(feature = "rspack-build"))]
+fn run_rspack_build(_project_dir: &Path, _plan: &BuildPlan) -> Result<()> {
+    Err(Error::RspackBuildUnavailable)
 }
 
 fn run_build_script(project_dir: &Path) -> Result<()> {
@@ -870,6 +910,7 @@ struct Versions {
     forge_components: String,
     esbuild: String,
     swc: String,
+    rspack: String,
     node: String,
     pnpm: String,
 }
@@ -881,9 +922,26 @@ impl Versions {
             forge_components: detect_forge_components_version().unwrap_or_else(|| "unknown".into()),
             esbuild: detect_node_package_version("esbuild").unwrap_or_else(|| "unknown".into()),
             swc: detect_node_package_version("@swc/core").unwrap_or_else(|| "unknown".into()),
+            rspack: detect_rspack_version(),
             node: detect_node_version().unwrap_or_else(|| "unknown".into()),
             pnpm: detect_pnpm_version().unwrap_or_else(|| "unknown".into()),
         }
+    }
+}
+
+fn detect_rspack_version() -> String {
+    if let Ok(value) = env::var("FORGE_RSPACK_VERSION")
+        && !value.trim().is_empty()
+    {
+        return value;
+    }
+    #[cfg(feature = "rspack-build")]
+    {
+        rspack_build::RSPACK_VERSION.to_owned()
+    }
+    #[cfg(not(feature = "rspack-build"))]
+    {
+        "unavailable".to_owned()
     }
 }
 
@@ -1007,6 +1065,11 @@ enum Error {
     #[snafu(display("{arg} must be true or false, got `{value}`"))]
     InvalidBool { arg: String, value: String },
 
+    #[snafu(display(
+        "invalid FORGE_BUILD_ENGINE `{value}`; expected `node`, `build.mjs`, `esbuild`, `rspack`, or `rspack-rust`"
+    ))]
+    InvalidBuildEngine { value: String },
+
     #[snafu(display("failed to read {}", path.display()))]
     ReadFile {
         path: PathBuf,
@@ -1103,6 +1166,14 @@ enum Error {
 
     #[snafu(display("failed to create Tokio runtime for build script"))]
     CreateRuntime { source: io::Error },
+
+    #[snafu(display(
+        "FORGE_BUILD_ENGINE=rspack requires building forge-job with `--features rspack-build`"
+    ))]
+    RspackBuildUnavailable,
+
+    #[snafu(display("rspack build failed: {message}"))]
+    RspackBuild { message: String },
 
     #[snafu(display("missing build dist directory {}", path.display()))]
     MissingDistDir { path: PathBuf },

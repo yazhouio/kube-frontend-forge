@@ -28,6 +28,11 @@ oxc_codegen = { version = "0.134.0", default-features = false }
 oxc_parser = "0.134.0"
 oxc_span = "0.134.0"
 regex = "1.11"
+rspack = { version = "0.100.8", features = ["loader_swc"] }
+rspack_core = "0.100.8"
+rspack_paths = "0.100.8"
+rspack_plugin_javascript = "0.100.8"
+rspack_regex = "0.100.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 snafu = "0.8"

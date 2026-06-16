@@ -33,6 +33,7 @@ const useSyncExternalStoreWithSelectorSource = __USE_SYNC_EXTERNAL_STORE_WITH_SE
 
 const reactCjsShimModules = new Map([
   ['use-sync-external-store', useSyncExternalStoreShimSource],
+  ['use-sync-external-store/index.js', useSyncExternalStoreShimSource],
   ['use-sync-external-store/shim', useSyncExternalStoreShimSource],
   ['use-sync-external-store/shim/index.js', useSyncExternalStoreShimSource],
   ['use-sync-external-store/with-selector', useSyncExternalStoreWithSelectorSource],

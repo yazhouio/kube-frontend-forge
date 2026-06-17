@@ -193,10 +193,10 @@ fn run_project_build(project_dir: &Path, plan: &BuildPlan) -> Result<()> {
 }
 
 fn build_engine() -> Result<BuildEngine> {
-    let value = env::var("FORGE_BUILD_ENGINE").unwrap_or_else(|_| "node".to_owned());
+    let value = env::var("FORGE_BUILD_ENGINE").unwrap_or_else(|_| "rspack".to_owned());
     match value.trim().to_ascii_lowercase().as_str() {
-        "" | "node" | "build.mjs" | "esbuild" => Ok(BuildEngine::NodeScript),
-        "rspack" | "rspack-rust" => Ok(BuildEngine::RspackRust),
+        "" | "rspack" | "rspack-rust" => Ok(BuildEngine::RspackRust),
+        "node" | "build.mjs" | "esbuild" => Ok(BuildEngine::NodeScript),
         _ => Err(Error::InvalidBuildEngine { value }),
     }
 }

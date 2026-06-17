@@ -119,6 +119,10 @@ fn define_plugin_values() -> DefineValue {
     import_meta_env.insert("SSR".to_owned(), Value::Bool(false));
 
     let mut values = DefineValue::default();
+    values.insert(
+        "process.env.NODE_ENV".to_owned(),
+        Value::String(production.clone()),
+    );
     values.insert("import.meta.env".to_owned(), Value::Object(import_meta_env));
     values.insert("import.meta.env.MODE".to_owned(), Value::String(production));
     values.insert("import.meta.env.DEV".to_owned(), Value::Bool(false));

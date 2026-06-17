@@ -4,16 +4,31 @@ on:
   push:
     branches:
       - dev
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Docker target to build
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - prod
+          - dev
 
 env:
   DOCKER_DEV_PLATFORMS: linux/amd64
 
 jobs:
   build-dev-image:
-    name: Build and push dev image
+    name: Build and push dev branch image (${{ matrix.target }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.target != 'both' && format('["{0}"]', inputs.target) || '["prod","dev"]') }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -33,20 +48,20 @@ jobs:
         with:
           images: spike2044/frontend-forge-job
           tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
+            type=ref,event=branch,suffix=${{ matrix.target == 'dev' && '-dev' || '' }}
+            type=sha,prefix={{branch}}-,suffix=${{ matrix.target == 'dev' && '-dev' || '' }}
 
-      - name: Build and push dev image
+      - name: Build and push ${{ matrix.target }} image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: crates/forge-job/Dockerfile
-          target: dev
+          target: ${{ matrix.target }}
           platforms: ${{ env.DOCKER_DEV_PLATFORMS }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=frontend-forge-dev-amd64
-          cache-to: type=gha,mode=max,scope=frontend-forge-dev-amd64
+          cache-from: type=gha,scope=frontend-forge-${{ matrix.target }}-amd64
+          cache-to: type=gha,mode=max,scope=frontend-forge-${{ matrix.target }}-amd64
           secrets: |
             npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}

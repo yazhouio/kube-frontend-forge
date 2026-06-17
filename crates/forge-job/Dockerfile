@@ -52,7 +52,7 @@ RUN --mount=type=cache,id=forge-pnpm-store,target=/pnpm/store \
     && rm -rf /runtime/forge-job/node_modules/.pnpm/*win32* \
     && rm -rf /runtime/forge-job/node_modules/.pnpm/*musl*
 
-FROM node:22-bookworm-slim AS dev
+FROM node:22-bookworm-slim AS job-debug
 
 ENV NODE_ENV="production"
 ENV FORGE_DEV_MODE="true"
@@ -68,7 +68,21 @@ COPY --from=node-deps /runtime/forge-job/node_modules ./node_modules
 ENTRYPOINT ["frontend-forge-job"]
 CMD ["build", "--input", "/input/manifest.json", "--out-dir", "/output"]
 
-FROM node:22-bookworm-slim AS server-dev
+FROM gcr.io/distroless/cc-debian12 AS job-prod
+
+ENV NODE_ENV="production"
+ENV FORGE_NODE_MODULES_DIR="/app/node_modules"
+ENV FORGE_COMPONENTS_PACKAGE_JSON="/app/node_modules/@frontend-forge/forge-components/package.json"
+ENV FORGE_PNPM_VERSION="11.1.0"
+
+WORKDIR /app
+COPY --from=rust-builder /workspace/target/release/frontend-forge-job /usr/local/bin/frontend-forge-job
+COPY --from=node-deps /runtime/forge-job/node_modules ./node_modules
+
+ENTRYPOINT ["/usr/local/bin/frontend-forge-job"]
+CMD ["build", "--input", "/input/manifest.json", "--out-dir", "/output"]
+
+FROM node:22-bookworm-slim AS server-debug
 
 ENV NODE_ENV="production"
 ENV FORGE_DEV_MODE="true"
@@ -85,20 +99,6 @@ COPY --from=node-deps /runtime/forge-job/node_modules ./node_modules
 EXPOSE 3000
 ENTRYPOINT ["frontend-forge-server"]
 CMD ["--addr", "0.0.0.0:3000"]
-
-FROM gcr.io/distroless/cc-debian12 AS prod
-
-ENV NODE_ENV="production"
-ENV FORGE_NODE_MODULES_DIR="/app/node_modules"
-ENV FORGE_COMPONENTS_PACKAGE_JSON="/app/node_modules/@frontend-forge/forge-components/package.json"
-ENV FORGE_PNPM_VERSION="11.1.0"
-
-WORKDIR /app
-COPY --from=rust-builder /workspace/target/release/frontend-forge-job /usr/local/bin/frontend-forge-job
-COPY --from=node-deps /runtime/forge-job/node_modules ./node_modules
-
-ENTRYPOINT ["/usr/local/bin/frontend-forge-job"]
-CMD ["build", "--input", "/input/manifest.json", "--out-dir", "/output"]
 
 FROM gcr.io/distroless/cc-debian12 AS server-prod
 

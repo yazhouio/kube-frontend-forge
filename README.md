@@ -95,7 +95,7 @@ Build the Job image:
 ```bash
 NPM_AUTH_BASE64='***' docker build \
   -f crates/forge-job/Dockerfile \
-  --target prod \
+  --target job-prod \
   --secret id=npm_auth_base64,env=NPM_AUTH_BASE64 \
   -t frontend-forge-job:prod .
 ```
@@ -105,9 +105,9 @@ Build the shell-friendly debug image:
 ```bash
 NPM_AUTH_BASE64='***' docker build \
   -f crates/forge-job/Dockerfile \
-  --target dev \
+  --target job-debug \
   --secret id=npm_auth_base64,env=NPM_AUTH_BASE64 \
-  -t frontend-forge-job:dev .
+  -t frontend-forge-job:debug .
 ```
 
 Build the HTTP server image:

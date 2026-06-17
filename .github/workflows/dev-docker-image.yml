@@ -14,7 +14,7 @@ on:
         options:
           - both
           - prod
-          - dev
+          - debug
 
 env:
   DOCKER_DEV_PLATFORMS: linux/amd64
@@ -35,13 +35,13 @@ jobs:
           target="${{ github.event_name == 'workflow_dispatch' && inputs.target || 'both' }}"
           case "$target" in
             prod)
-              matrix='{"include":[{"image":"spike2044/frontend-forge-job","target":"prod","tag_suffix":"","cache_scope":"frontend-forge-job-prod-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-prod","tag_suffix":"","cache_scope":"frontend-forge-server-prod-amd64"}]}'
+              matrix='{"include":[{"image":"spike2044/frontend-forge-job","target":"job-prod","tag_suffix":"","cache_scope":"frontend-forge-job-prod-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-prod","tag_suffix":"","cache_scope":"frontend-forge-server-prod-amd64"}]}'
               ;;
-            dev)
-              matrix='{"include":[{"image":"spike2044/frontend-forge-job","target":"dev","tag_suffix":"-dev","cache_scope":"frontend-forge-job-dev-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-dev","tag_suffix":"-dev","cache_scope":"frontend-forge-server-dev-amd64"}]}'
+            debug)
+              matrix='{"include":[{"image":"spike2044/frontend-forge-job","target":"job-debug","tag_suffix":"-debug","cache_scope":"frontend-forge-job-debug-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-debug","tag_suffix":"-debug","cache_scope":"frontend-forge-server-debug-amd64"}]}'
               ;;
             both)
-              matrix='{"include":[{"image":"spike2044/frontend-forge-job","target":"prod","tag_suffix":"","cache_scope":"frontend-forge-job-prod-amd64"},{"image":"spike2044/frontend-forge-job","target":"dev","tag_suffix":"-dev","cache_scope":"frontend-forge-job-dev-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-prod","tag_suffix":"","cache_scope":"frontend-forge-server-prod-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-dev","tag_suffix":"-dev","cache_scope":"frontend-forge-server-dev-amd64"}]}'
+              matrix='{"include":[{"image":"spike2044/frontend-forge-job","target":"job-prod","tag_suffix":"","cache_scope":"frontend-forge-job-prod-amd64"},{"image":"spike2044/frontend-forge-job","target":"job-debug","tag_suffix":"-debug","cache_scope":"frontend-forge-job-debug-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-prod","tag_suffix":"","cache_scope":"frontend-forge-server-prod-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-debug","tag_suffix":"-debug","cache_scope":"frontend-forge-server-debug-amd64"}]}'
               ;;
             *)
               echo "Unsupported target: $target" >&2

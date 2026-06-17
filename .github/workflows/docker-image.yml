@@ -23,11 +23,11 @@ jobs:
       matrix:
         include:
           - image: spike2044/frontend-forge-job
-            target: dev
-            variant: dev
+            target: job-debug
+            variant: debug
           - image: spike2044/frontend-forge-server
-            target: server-dev
-            variant: dev
+            target: server-debug
+            variant: debug
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -60,12 +60,12 @@ jobs:
       matrix:
         include:
           - image: spike2044/frontend-forge-job
-            target: prod
+            target: job-prod
             platform: linux/amd64
             arch: amd64
             runner: ubuntu-latest
           - image: spike2044/frontend-forge-job
-            target: dev
+            target: job-debug
             platform: linux/amd64
             arch: amd64
             runner: ubuntu-latest
@@ -75,17 +75,17 @@ jobs:
             arch: amd64
             runner: ubuntu-latest
           - image: spike2044/frontend-forge-server
-            target: server-dev
+            target: server-debug
             platform: linux/amd64
             arch: amd64
             runner: ubuntu-latest
           - image: spike2044/frontend-forge-job
-            target: prod
+            target: job-prod
             platform: linux/arm64
             arch: arm64
             runner: ubuntu-24.04-arm
           - image: spike2044/frontend-forge-job
-            target: dev
+            target: job-debug
             platform: linux/arm64
             arch: arm64
             runner: ubuntu-24.04-arm
@@ -95,7 +95,7 @@ jobs:
             arch: arm64
             runner: ubuntu-24.04-arm
           - image: spike2044/frontend-forge-server
-            target: server-dev
+            target: server-debug
             platform: linux/arm64
             arch: arm64
             runner: ubuntu-24.04-arm
@@ -152,21 +152,21 @@ jobs:
       matrix:
         include:
           - image: spike2044/frontend-forge-job
-            target: prod
+            target: job-prod
             tag_suffix: ""
             latest_suffix: ""
           - image: spike2044/frontend-forge-job
-            target: dev
-            tag_suffix: "-dev"
-            latest_suffix: "-dev"
+            target: job-debug
+            tag_suffix: "-debug"
+            latest_suffix: "-debug"
           - image: spike2044/frontend-forge-server
             target: server-prod
             tag_suffix: ""
             latest_suffix: ""
           - image: spike2044/frontend-forge-server
-            target: server-dev
-            tag_suffix: "-dev"
-            latest_suffix: "-dev"
+            target: server-debug
+            tag_suffix: "-debug"
+            latest_suffix: "-debug"
     steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

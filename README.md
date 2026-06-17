@@ -70,6 +70,35 @@ cargo test --workspace
 cargo test --workspace --features swc
 ```
 
+For faster local Rust linking, Linux developers are recommended to use `mold`
+and macOS developers are recommended to use `sold` (`ld64.sold`). Add this as
+machine-local Cargo config only, so machines without the linker still build
+normally.
+
+Linux:
+
+```toml
+# ~/.cargo/config.toml
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[target.aarch64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+```
+
+macOS:
+
+```toml
+# ~/.cargo/config.toml
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-Wl,--ld-path=/path/to/ld64.sold"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-Wl,--ld-path=/path/to/ld64.sold"]
+```
+
 Run a local full build with the sample manifest:
 
 ```bash

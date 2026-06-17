@@ -2,6 +2,14 @@
 
 FROM rustlang/rust:nightly-bookworm AS rust-builder
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends clang mold \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="clang" \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="clang" \
+    RUSTFLAGS="-C link-arg=-fuse-ld=mold"
+
 WORKDIR /workspace
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates

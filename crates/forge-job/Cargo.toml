@@ -24,6 +24,11 @@ oxc_ast.workspace = true
 oxc_ast_visit.workspace = true
 oxc_parser.workspace = true
 oxc_span.workspace = true
+rspack = { workspace = true, optional = true }
+rspack_core = { workspace = true, optional = true }
+rspack_paths = { workspace = true, optional = true }
+rspack_plugin_javascript = { workspace = true, optional = true }
+rspack_regex = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 snafu.workspace = true
@@ -33,3 +38,13 @@ tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[features]
+default = ["rspack-build"]
+rspack-build = [
+  "dep:rspack",
+  "dep:rspack_core",
+  "dep:rspack_paths",
+  "dep:rspack_plugin_javascript",
+  "dep:rspack_regex",
+]

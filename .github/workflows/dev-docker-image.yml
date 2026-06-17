@@ -20,15 +20,46 @@ env:
   DOCKER_DEV_PLATFORMS: linux/amd64
 
 jobs:
+  prepare-matrix:
+    name: Prepare image matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Generate image matrix
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          target="${{ github.event_name == 'workflow_dispatch' && inputs.target || 'both' }}"
+          case "$target" in
+            prod)
+              matrix='{"include":[{"image":"spike2044/frontend-forge-job","target":"prod","tag_suffix":"","cache_scope":"frontend-forge-job-prod-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-prod","tag_suffix":"","cache_scope":"frontend-forge-server-prod-amd64"}]}'
+              ;;
+            dev)
+              matrix='{"include":[{"image":"spike2044/frontend-forge-job","target":"dev","tag_suffix":"-dev","cache_scope":"frontend-forge-job-dev-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-dev","tag_suffix":"-dev","cache_scope":"frontend-forge-server-dev-amd64"}]}'
+              ;;
+            both)
+              matrix='{"include":[{"image":"spike2044/frontend-forge-job","target":"prod","tag_suffix":"","cache_scope":"frontend-forge-job-prod-amd64"},{"image":"spike2044/frontend-forge-job","target":"dev","tag_suffix":"-dev","cache_scope":"frontend-forge-job-dev-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-prod","tag_suffix":"","cache_scope":"frontend-forge-server-prod-amd64"},{"image":"spike2044/frontend-forge-server","target":"server-dev","tag_suffix":"-dev","cache_scope":"frontend-forge-server-dev-amd64"}]}'
+              ;;
+            *)
+              echo "Unsupported target: $target" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   build-dev-image:
-    name: Build and push dev branch image (${{ matrix.target }})
+    name: Build and push dev branch image (${{ matrix.image }}:${{ matrix.target }})
+    needs: [prepare-matrix]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     strategy:
       fail-fast: false
-      matrix:
-        target: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.target != 'both' && format('["{0}"]', inputs.target) || '["prod","dev"]') }}
+      matrix: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -46,10 +77,10 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: spike2044/frontend-forge-job
+          images: ${{ matrix.image }}
           tags: |
-            type=ref,event=branch,suffix=${{ matrix.target == 'dev' && '-dev' || '' }}
-            type=sha,prefix={{branch}}-,suffix=${{ matrix.target == 'dev' && '-dev' || '' }}
+            type=ref,event=branch,suffix=${{ matrix.tag_suffix }}
+            type=sha,prefix={{branch}}-,suffix=${{ matrix.tag_suffix }}
 
       - name: Build and push ${{ matrix.target }} image
         uses: docker/build-push-action@v7
@@ -61,7 +92,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=frontend-forge-${{ matrix.target }}-amd64
-          cache-to: type=gha,mode=max,scope=frontend-forge-${{ matrix.target }}-amd64
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
           secrets: |
             npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}

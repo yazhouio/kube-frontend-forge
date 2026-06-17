@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev
+      - codex/rspack-rust-build-poc
   workflow_dispatch:
     inputs:
       target:

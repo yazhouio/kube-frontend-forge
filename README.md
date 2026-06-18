@@ -42,12 +42,12 @@ supported. CLI flags take precedence over environment variables.
 
 ### Build Engine
 
-The Job uses the in-process rspack backend by default through the `rspack-build`
-feature. `FORGE_BUILD_ENGINE=rolldown` selects the optional Rust Rolldown
-backend; build `forge-job` with `--features rolldown-build --no-default-features`
+The Job uses the in-process Rust Rolldown backend by default through the
+`rolldown-build` feature. `FORGE_BUILD_ENGINE=rspack` selects the optional
+rspack backend; build `forge-job` with `--features rspack-build --no-default-features`
 or combine `rspack-build,rolldown-build` when both engines are needed. The
-aliases `rolldown-rust`, `rulldown`, and `rulldown-rust` are accepted for the
-same backend.
+Rolldown aliases `rolldown-rust`, `rulldown`, and `rulldown-rust` are accepted
+for the same backend.
 
 Rolldown output is first bundled as ESM. For SystemJS manifests, the Job then
 uses SWC to convert every emitted JavaScript file to `System.register` before
@@ -124,14 +124,14 @@ cargo run -p forge-job --bin frontend-forge-job -- build \
   --emit-project-archive true
 ```
 
-Run the same sample with the optional Rolldown backend:
+Run the same sample with the optional rspack backend:
 
 ```bash
-FORGE_BUILD_ENGINE=rolldown \
-cargo run -p forge-job --features rolldown-build --no-default-features \
+FORGE_BUILD_ENGINE=rspack \
+cargo run -p forge-job --features rspack-build --no-default-features \
   --bin frontend-forge-job -- build \
   --input examples/full.json \
-  --out-dir .tmp/full-flow/rolldown-out \
+  --out-dir .tmp/full-flow/rspack-out \
   --emit-project-archive true
 ```
 

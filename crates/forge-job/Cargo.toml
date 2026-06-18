@@ -13,6 +13,7 @@ name = "frontend-forge-server"
 path = "src/server.rs"
 
 [dependencies]
+anyhow = { workspace = true, optional = true }
 axum.workspace = true
 figment.workspace = true
 flate2.workspace = true
@@ -24,6 +25,7 @@ oxc_ast.workspace = true
 oxc_ast_visit.workspace = true
 oxc_parser.workspace = true
 oxc_span.workspace = true
+rolldown = { workspace = true, optional = true }
 rspack = { workspace = true, optional = true }
 rspack_core = { workspace = true, optional = true }
 rspack_paths = { workspace = true, optional = true }
@@ -32,6 +34,13 @@ rspack_regex = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 snafu.workspace = true
+swc_common = { workspace = true, optional = true }
+swc_ecma_ast = { workspace = true, optional = true }
+swc_ecma_codegen = { workspace = true, optional = true }
+swc_ecma_parser = { workspace = true, optional = true }
+swc_ecma_transforms_base = { workspace = true, optional = true }
+swc_ecma_transforms_module = { workspace = true, optional = true }
+swc_ecma_visit = { workspace = true, optional = true }
 tar.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
@@ -41,6 +50,17 @@ tracing-subscriber.workspace = true
 
 [features]
 default = ["rspack-build"]
+rolldown-build = [
+  "dep:anyhow",
+  "dep:rolldown",
+  "dep:swc_common",
+  "dep:swc_ecma_ast",
+  "dep:swc_ecma_codegen",
+  "dep:swc_ecma_parser",
+  "dep:swc_ecma_transforms_base",
+  "dep:swc_ecma_transforms_module",
+  "dep:swc_ecma_visit",
+]
 rspack-build = [
   "dep:rspack",
   "dep:rspack_core",

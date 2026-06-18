@@ -39,6 +39,9 @@ use tracing_subscriber::{EnvFilter, fmt};
 mod node_modules;
 mod systemjs_validator;
 
+#[cfg(feature = "rolldown-build")]
+mod rolldown_build;
+
 #[cfg(feature = "rspack-build")]
 mod rspack_build;
 
@@ -601,15 +604,74 @@ impl BuildWorker {
     async fn run(&self, project_dir: &Path, plan: &BuildPlan) -> Result<()> {
         let _guard = self.lock.lock().await;
         let timeout = build_timeout();
-        tokio::time::timeout(timeout, run_rspack_build(project_dir, plan))
+        let engine = build_engine()?;
+        tokio::time::timeout(timeout, run_project_build(engine, project_dir, plan))
             .await
             .map_err(|_| {
                 ServerError::internal(format!(
-                    "rspack build timed out after {}ms",
+                    "{} build timed out after {}ms",
+                    engine.label(),
                     timeout.as_millis()
                 ))
             })?
     }
+}
+
+#[derive(Clone, Copy)]
+enum BuildEngine {
+    RolldownRust,
+    RspackRust,
+}
+
+impl BuildEngine {
+    fn label(self) -> &'static str {
+        match self {
+            Self::RolldownRust => "rolldown",
+            Self::RspackRust => "rspack",
+        }
+    }
+}
+
+fn build_engine() -> Result<BuildEngine> {
+    let value = env::var("FORGE_BUILD_ENGINE").unwrap_or_else(|_| "rspack".to_owned());
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" | "rspack" | "rspack-rust" => Ok(BuildEngine::RspackRust),
+        "rolldown" | "rolldown-rust" | "rulldown" | "rulldown-rust" => {
+            Ok(BuildEngine::RolldownRust)
+        }
+        _ => Err(ServerError::internal(format!(
+            "invalid FORGE_BUILD_ENGINE `{value}`; expected `rspack`, `rspack-rust`, `rolldown`, `rolldown-rust`, `rulldown`, or `rulldown-rust`"
+        ))),
+    }
+}
+
+async fn run_project_build(
+    engine: BuildEngine,
+    project_dir: &Path,
+    plan: &BuildPlan,
+) -> Result<()> {
+    match engine {
+        BuildEngine::RolldownRust => run_rolldown_build(project_dir, plan).await,
+        BuildEngine::RspackRust => run_rspack_build(project_dir, plan).await,
+    }
+}
+
+#[cfg(feature = "rolldown-build")]
+async fn run_rolldown_build(project_dir: &Path, plan: &BuildPlan) -> Result<()> {
+    tracing::debug!(
+        rolldown_version = rolldown_build::ROLLDOWN_VERSION,
+        "running in-process rolldown build"
+    );
+    rolldown_build::build_project(project_dir, plan)
+        .await
+        .map_err(|message| ServerError::internal(format!("rolldown build failed: {message}")))
+}
+
+#[cfg(not(feature = "rolldown-build"))]
+async fn run_rolldown_build(_project_dir: &Path, _plan: &BuildPlan) -> Result<()> {
+    Err(ServerError::internal(
+        "server rolldown build requires building forge-job with the `rolldown-build` feature",
+    ))
 }
 
 #[cfg(feature = "rspack-build")]
@@ -704,7 +766,7 @@ async fn build_project(state: &AppState, value: Value) -> Result<BuildOutput> {
         .run(&prepared.project_dir, &prepared.plan)
         .await?;
     tracing::debug!(
-        stage = "rspack_build",
+        stage = "project_build",
         elapsed_ms = elapsed_ms(build_started),
         "forge build step completed"
     );

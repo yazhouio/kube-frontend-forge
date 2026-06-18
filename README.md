@@ -7,10 +7,10 @@ removed; inputs and outputs are file based.
 
 ## Project Structure
 
-- `crates/forge-job`: Rust CLI entrypoint for build jobs, file IO, Rollup execution, validation, and archive output.
-- `crates/forge-core`: orchestration boundary that creates build plans without binding to Rollup, pnpm, or archive details.
+- `crates/forge-job`: Rust CLI entrypoint for build jobs, file IO, project build execution, validation, and archive output.
+- `crates/forge-core`: orchestration boundary that creates build plans without binding to a bundler, pnpm, or archive details.
 - `crates/forge-component-generator`: Rust component tree to TSX generator, Oxc by default and SWC behind the `swc` feature.
-- `crates/forge-project-generator`: manifest to plain Rollup project files.
+- `crates/forge-project-generator`: manifest to generated project files.
 - `packages/forge-components`: TS/React runtime component package used by generated pages.
 - `examples/`: local manifest and page-schema examples for CLI testing.
 
@@ -24,7 +24,7 @@ frontend-forge-job build --input /input/manifest.json --out-dir /output
 
 Outputs:
 
-- `/output/build.tar.gz`: Rollup-built SystemJS files.
+- `/output/build.tar.gz`: built output files, SystemJS by default.
 - `/output/result.json`: build status, timings, versions, warnings, and errors.
 - `/output/project.tar.gz`: optional generated project source archive.
 
@@ -40,6 +40,21 @@ frontend-forge-job build \
 The environment variable `FORGE_EMIT_PROJECT_ARCHIVE=true|false` is also
 supported. CLI flags take precedence over environment variables.
 
+### Build Engine
+
+The Job uses the in-process rspack backend by default through the `rspack-build`
+feature. `FORGE_BUILD_ENGINE=rolldown` selects the optional Rust Rolldown
+backend; build `forge-job` with `--features rolldown-build --no-default-features`
+or combine `rspack-build,rolldown-build` when both engines are needed. The
+aliases `rolldown-rust`, `rulldown`, and `rulldown-rust` are accepted for the
+same backend.
+
+Rolldown output is first bundled as ESM. For SystemJS manifests, the Job then
+uses SWC to convert every emitted JavaScript file to `System.register` before
+archive validation. The CLI also keeps the legacy generated `build.mjs` path
+available through `FORGE_BUILD_ENGINE=node|build.mjs|esbuild`; the HTTP server
+supports the in-process rspack and rolldown backends.
+
 ## Local Development
 
 Install dependencies:
@@ -49,8 +64,8 @@ pnpm install
 ```
 
 The pnpm workspace is intentionally narrow: `crates/forge-job` provides the
-Rollup/Node runtime dependencies, and `packages/forge-components` is the
-TS/React runtime package linked by the Job.
+Node runtime dependencies for the legacy build script, and
+`packages/forge-components` is the TS/React runtime package linked by the Job.
 
 Build the TS runtime components when validating the published package output:
 
@@ -102,12 +117,21 @@ rustflags = ["-C", "link-arg=-Wl,--ld-path=/path/to/ld64.sold"]
 Run a local full build with the sample manifest:
 
 ```bash
-FORGE_NODE_MODULES_DIR=$(pwd)/crates/forge-job/node_modules \
-FORGE_ROLLUP_BIN=$(pwd)/crates/forge-job/node_modules/.bin/rollup \
 FORGE_DEV_MODE=true \
 cargo run -p forge-job --bin frontend-forge-job -- build \
   --input examples/full.json \
   --out-dir .tmp/full-flow/local-out \
+  --emit-project-archive true
+```
+
+Run the same sample with the optional Rolldown backend:
+
+```bash
+FORGE_BUILD_ENGINE=rolldown \
+cargo run -p forge-job --features rolldown-build --no-default-features \
+  --bin frontend-forge-job -- build \
+  --input examples/full.json \
+  --out-dir .tmp/full-flow/rolldown-out \
   --emit-project-archive true
 ```
 

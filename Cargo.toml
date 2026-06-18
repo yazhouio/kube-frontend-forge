@@ -14,6 +14,7 @@ edition = "2024"
 license = "UNLICENSED"
 
 [workspace.dependencies]
+anyhow = "1.0"
 flate2 = "1.0"
 axum = "0.8"
 figment = { version = "0.10.19", features = ["env", "toml"] }
@@ -33,6 +34,7 @@ rspack_core = "0.100.8"
 rspack_paths = "0.100.8"
 rspack_plugin_javascript = "0.100.8"
 rspack_regex = "0.100.8"
+rolldown = "1.1.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 snafu = "0.8"
@@ -40,6 +42,8 @@ swc_common = "23.0.0"
 swc_ecma_ast = "25.0.0"
 swc_ecma_codegen = "28.0.0"
 swc_ecma_parser = "41.0.0"
+swc_ecma_transforms_base = "44.0.3"
+swc_ecma_transforms_module = "49.0.1"
 swc_ecma_visit = "25.0.0"
 tar = "0.4"
 tempfile = "3.10"

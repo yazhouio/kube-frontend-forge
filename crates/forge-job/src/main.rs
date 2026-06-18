@@ -21,6 +21,9 @@ use tokio::{io::AsyncReadExt, process::Command as TokioCommand};
 mod node_modules;
 mod systemjs_validator;
 
+#[cfg(feature = "rolldown-build")]
+mod rolldown_build;
+
 #[cfg(feature = "rspack-build")]
 mod rspack_build;
 
@@ -189,14 +192,18 @@ fn run_build(args: BuildArgs) -> Result<()> {
 fn run_project_build(project_dir: &Path, plan: &BuildPlan) -> Result<()> {
     match build_engine()? {
         BuildEngine::NodeScript => run_build_script(project_dir),
+        BuildEngine::RolldownRust => run_rolldown_build(project_dir, plan),
         BuildEngine::RspackRust => run_rspack_build(project_dir, plan),
     }
 }
 
 fn build_engine() -> Result<BuildEngine> {
-    let value = env::var("FORGE_BUILD_ENGINE").unwrap_or_else(|_| "rspack".to_owned());
+    let value = env::var("FORGE_BUILD_ENGINE").unwrap_or_else(|_| "rolldown".to_owned());
     match value.trim().to_ascii_lowercase().as_str() {
-        "" | "rspack" | "rspack-rust" => Ok(BuildEngine::RspackRust),
+        "rspack" | "rspack-rust" => Ok(BuildEngine::RspackRust),
+        "" | "rolldown" | "rolldown-rust" | "rulldown" | "rulldown-rust" => {
+            Ok(BuildEngine::RolldownRust)
+        }
         "node" | "build.mjs" | "esbuild" => Ok(BuildEngine::NodeScript),
         _ => Err(Error::InvalidBuildEngine { value }),
     }
@@ -204,7 +211,24 @@ fn build_engine() -> Result<BuildEngine> {
 
 enum BuildEngine {
     NodeScript,
+    RolldownRust,
     RspackRust,
+}
+
+#[cfg(feature = "rolldown-build")]
+fn run_rolldown_build(project_dir: &Path, plan: &BuildPlan) -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .context(CreateRuntimeSnafu)?
+        .block_on(rolldown_build::build_project(project_dir, plan))
+        .map_err(|message| Error::RolldownBuild { message })
+}
+
+#[cfg(not(feature = "rolldown-build"))]
+fn run_rolldown_build(_project_dir: &Path, _plan: &BuildPlan) -> Result<()> {
+    Err(Error::RolldownBuildUnavailable)
 }
 
 #[cfg(feature = "rspack-build")]
@@ -907,6 +931,7 @@ struct Versions {
     forge_components: String,
     esbuild: String,
     swc: String,
+    rolldown: String,
     rspack: String,
     node: String,
     pnpm: String,
@@ -919,10 +944,27 @@ impl Versions {
             forge_components: detect_forge_components_version().unwrap_or_else(|| "unknown".into()),
             esbuild: detect_node_package_version("esbuild").unwrap_or_else(|| "unknown".into()),
             swc: detect_node_package_version("@swc/core").unwrap_or_else(|| "unknown".into()),
+            rolldown: detect_rolldown_version(),
             rspack: detect_rspack_version(),
             node: detect_node_version().unwrap_or_else(|| "unknown".into()),
             pnpm: detect_pnpm_version().unwrap_or_else(|| "unknown".into()),
         }
+    }
+}
+
+fn detect_rolldown_version() -> String {
+    if let Ok(value) = env::var("FORGE_ROLLDOWN_VERSION")
+        && !value.trim().is_empty()
+    {
+        return value;
+    }
+    #[cfg(feature = "rolldown-build")]
+    {
+        rolldown_build::ROLLDOWN_VERSION.to_owned()
+    }
+    #[cfg(not(feature = "rolldown-build"))]
+    {
+        "unavailable".to_owned()
     }
 }
 
@@ -1063,7 +1105,7 @@ enum Error {
     InvalidBool { arg: String, value: String },
 
     #[snafu(display(
-        "invalid FORGE_BUILD_ENGINE `{value}`; expected `node`, `build.mjs`, `esbuild`, `rspack`, or `rspack-rust`"
+        "invalid FORGE_BUILD_ENGINE `{value}`; expected `node`, `build.mjs`, `esbuild`, `rspack`, `rspack-rust`, `rolldown`, `rolldown-rust`, `rulldown`, or `rulldown-rust`"
     ))]
     InvalidBuildEngine { value: String },
 
@@ -1171,6 +1213,14 @@ enum Error {
 
     #[snafu(display("rspack build failed: {message}"))]
     RspackBuild { message: String },
+
+    #[snafu(display(
+        "FORGE_BUILD_ENGINE=rolldown requires building forge-job with `--features rolldown-build`"
+    ))]
+    RolldownBuildUnavailable,
+
+    #[snafu(display("rolldown build failed: {message}"))]
+    RolldownBuild { message: String },
 
     #[snafu(display("missing build dist directory {}", path.display()))]
     MissingDistDir { path: PathBuf },

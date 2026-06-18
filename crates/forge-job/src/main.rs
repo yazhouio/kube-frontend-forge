@@ -200,8 +200,8 @@ fn run_project_build(project_dir: &Path, plan: &BuildPlan) -> Result<()> {
 fn build_engine() -> Result<BuildEngine> {
     let value = env::var("FORGE_BUILD_ENGINE").unwrap_or_else(|_| "rolldown".to_owned());
     match value.trim().to_ascii_lowercase().as_str() {
-        "" | "rspack" | "rspack-rust" => Ok(BuildEngine::RspackRust),
-        "rolldown" | "rolldown-rust" | "rulldown" | "rulldown-rust" => {
+        "rspack" | "rspack-rust" => Ok(BuildEngine::RspackRust),
+        "" | "rolldown" | "rolldown-rust" | "rulldown" | "rulldown-rust" => {
             Ok(BuildEngine::RolldownRust)
         }
         "node" | "build.mjs" | "esbuild" => Ok(BuildEngine::NodeScript),

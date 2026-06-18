@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    env, fs, io,
+    env,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -36,7 +36,7 @@ const STYLE_FILE_NAME: &str = "style.css";
 
 pub async fn build_project(project_dir: &Path, plan: &BuildPlan) -> Result<(), String> {
     let dist_dir = project_dir.join(&plan.expectations.dist_dir);
-    remove_dir_if_exists(&dist_dir).map_err(|source| {
+    remove_dir_if_exists(&dist_dir).await.map_err(|source| {
         format!(
             "failed to remove rolldown dist directory {}: {source}",
             dist_dir.display()
@@ -57,7 +57,7 @@ pub async fn build_project(project_dir: &Path, plan: &BuildPlan) -> Result<(), S
     bundler.close().await.map_err(format_build_error)?;
 
     if plan.expectations.systemjs {
-        convert_dist_to_systemjs(&dist_dir)?;
+        convert_dist_to_systemjs(&dist_dir).await?;
     }
 
     Ok(())
@@ -316,19 +316,26 @@ fn css_path(path: &str) -> Option<&str> {
         .then_some(clean)
 }
 
-fn convert_dist_to_systemjs(dist_dir: &Path) -> Result<(), String> {
-    for path in collect_js_files(dist_dir)? {
-        let code = fs::read_to_string(&path)
+async fn convert_dist_to_systemjs(dist_dir: &Path) -> Result<(), String> {
+    for path in collect_js_files(dist_dir).await? {
+        let code = tokio::fs::read_to_string(&path)
+            .await
             .map_err(|source| format!("failed to read JavaScript {}: {source}", path.display()))?;
-        let systemjs = to_systemjs(&code, &path)?;
-        fs::write(&path, systemjs)
+        let systemjs = to_systemjs(code, path.clone()).await?;
+        tokio::fs::write(&path, systemjs)
+            .await
             .map_err(|source| format!("failed to write SystemJS {}: {source}", path.display()))?;
     }
     Ok(())
 }
 
-fn to_systemjs(code: &str, path: &Path) -> Result<String, String> {
-    GLOBALS.set(&Globals::new(), || to_systemjs_inner(code, path))
+async fn to_systemjs(code: String, path: PathBuf) -> Result<String, String> {
+    let display_path = path.display().to_string();
+    tokio::task::spawn_blocking(move || {
+        GLOBALS.set(&Globals::new(), || to_systemjs_inner(&code, &path))
+    })
+    .await
+    .map_err(|source| format!("SystemJS transform task failed for {display_path}: {source}"))?
 }
 
 fn to_systemjs_inner(code: &str, path: &Path) -> Result<String, String> {
@@ -379,24 +386,34 @@ fn emit_program(cm: Lrc<SourceMap>, program: &Program) -> Result<String, String>
     String::from_utf8(buf).map_err(|source| format!("SystemJS output is not UTF-8: {source}"))
 }
 
-fn collect_js_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+async fn collect_js_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
-    collect_js_files_inner(root, &mut files)
-        .map_err(|source| format!("failed to collect JavaScript outputs: {source}"))?;
-    files.sort();
-    Ok(files)
-}
+    let mut stack = vec![root.to_path_buf()];
 
-fn collect_js_files_inner(root: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
-    for entry in fs::read_dir(root)? {
-        let path = entry?.path();
-        if path.is_dir() {
-            collect_js_files_inner(&path, files)?;
-        } else if path.extension().is_some_and(|ext| ext == "js") {
-            files.push(path);
+    while let Some(dir_path) = stack.pop() {
+        let mut dir = tokio::fs::read_dir(&dir_path).await.map_err(|source| {
+            format!("failed to read directory {}: {source}", dir_path.display())
+        })?;
+        while let Some(entry) = dir.next_entry().await.map_err(|source| {
+            format!(
+                "failed to read directory entry in {}: {source}",
+                dir_path.display()
+            )
+        })? {
+            let path = entry.path();
+            let file_type = entry.file_type().await.map_err(|source| {
+                format!("failed to read file type for {}: {source}", path.display())
+            })?;
+            if file_type.is_dir() {
+                stack.push(path);
+            } else if file_type.is_file() && path.extension().is_some_and(|ext| ext == "js") {
+                files.push(path);
+            }
         }
     }
-    Ok(())
+
+    files.sort();
+    Ok(files)
 }
 
 fn is_forge_dev_mode() -> bool {
@@ -425,10 +442,10 @@ fn format_build_error(source: impl std::fmt::Display) -> String {
     source.to_string()
 }
 
-fn remove_dir_if_exists(path: &Path) -> io::Result<()> {
-    match fs::remove_dir_all(path) {
+async fn remove_dir_if_exists(path: &Path) -> std::io::Result<()> {
+    match tokio::fs::remove_dir_all(path).await {
         Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
 }

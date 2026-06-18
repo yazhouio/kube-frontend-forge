@@ -2,11 +2,7 @@ use std::{
     env, fs, io,
     net::SocketAddr,
     path::{Path, PathBuf},
-    process::Stdio,
-    sync::{
-        Arc, LazyLock,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -23,20 +19,16 @@ use figment::{
     providers::{Env, Format, Serialized, Toml},
 };
 use flate2::{Compression, write::GzEncoder};
-use forge_core::ForgeCore;
+use forge_core::{BuildPlan, ForgeCore};
+use forge_project_generator::{ExtensionManifest, VirtualFile, unwrap_manifest};
+#[cfg(test)]
 use forge_project_generator::{
-    EXTERNAL_PACKAGES, ExtensionManifest, USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE,
-    USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE, VirtualFile, unwrap_manifest,
+    USE_SYNC_EXTERNAL_STORE_SHIM_SOURCE, USE_SYNC_EXTERNAL_STORE_WITH_SELECTOR_SOURCE,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tempfile::TempDir;
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader},
-    process::{Child, ChildStdin, ChildStdout, Command as TokioCommand},
-    sync::Mutex as TokioMutex,
-    task::JoinHandle,
-};
+use tokio::sync::Mutex as TokioMutex;
 use tower_http::{
     services::ServeDir,
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
@@ -44,7 +36,11 @@ use tower_http::{
 use tracing::Level;
 use tracing_subscriber::{EnvFilter, fmt};
 
+mod node_modules;
 mod systemjs_validator;
+
+#[cfg(feature = "rspack-build")]
+mod rspack_build;
 
 type Result<T, E = ServerError> = std::result::Result<T, E>;
 
@@ -67,8 +63,7 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
     ),
 ];
 
-static BUILD_WORKER_SCRIPT: LazyLock<String> = LazyLock::new(render_build_worker_script);
-
+#[cfg(test)]
 fn render_build_worker_script() -> String {
     let replacements = [
         (
@@ -89,6 +84,7 @@ fn render_build_worker_script() -> String {
     script
 }
 
+#[cfg(test)]
 const BUILD_WORKER_SCRIPT_TEMPLATE: &str = r#"
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -592,255 +588,46 @@ impl AppState {
 }
 
 struct BuildWorker {
-    state: TokioMutex<BuildWorkerState>,
-    next_id: AtomicU64,
+    lock: TokioMutex<()>,
 }
 
 impl BuildWorker {
     fn new() -> Self {
         Self {
-            state: TokioMutex::new(BuildWorkerState::default()),
-            next_id: AtomicU64::new(1),
+            lock: TokioMutex::new(()),
         }
     }
 
-    async fn run(&self, project_dir: &Path, build_format: &str) -> Result<()> {
-        let timeout_ms = build_timeout().as_millis().min(u128::from(u64::MAX)) as u64;
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let request = BuildWorkerRequest {
-            id,
-            project_dir: project_dir.to_string_lossy().into_owned(),
-            build_format: build_format.to_owned(),
-            external_packages: EXTERNAL_PACKAGES
-                .iter()
-                .map(|name| (*name).to_owned())
-                .collect(),
-            timeout_ms,
-        };
-        let mut state = self.state.lock().await;
-        state.run(request).await
-    }
-}
-
-#[derive(Default)]
-struct BuildWorkerState {
-    child: Option<Child>,
-    stdin: Option<ChildStdin>,
-    stdout: Option<TokioBufReader<ChildStdout>>,
-    stderr_task: Option<JoinHandle<()>>,
-}
-
-impl BuildWorkerState {
-    async fn run(&mut self, request: BuildWorkerRequest) -> Result<()> {
-        let line = serde_json::to_string(&request).map_err(|source| {
-            ServerError::internal(format!("failed to encode build request: {source}"))
-        })?;
-
-        self.ensure_started().await?;
-
-        let write_result = async {
-            let stdin = self
-                .stdin
-                .as_mut()
-                .ok_or_else(|| ServerError::internal("build worker stdin is unavailable"))?;
-            stdin.write_all(line.as_bytes()).await?;
-            stdin.write_all(b"\n").await?;
-            stdin.flush().await?;
-            Ok::<(), ServerError>(())
-        }
-        .await;
-        if let Err(error) = write_result {
-            self.stop().await;
-            return Err(error);
-        }
-
-        let response = match self
-            .read_response(request.id, Duration::from_millis(request.timeout_ms))
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => {
-                self.stop().await;
-                return Err(error);
-            }
-        };
-
-        log_build_worker_output(&response.logs);
-        if response.ok {
-            return Ok(());
-        }
-
-        Err(ServerError::internal(format!(
-            "node build worker failed: {}",
-            response.error.unwrap_or_else(|| "unknown error".to_owned())
-        )))
-    }
-
-    async fn ensure_started(&mut self) -> Result<()> {
-        if let Some(child) = &mut self.child {
-            match child.try_wait() {
-                Ok(None) => return Ok(()),
-                Ok(Some(status)) => {
-                    tracing::warn!(?status, "build worker exited; restarting");
-                    self.stop().await;
-                }
-                Err(source) => {
-                    tracing::warn!("failed to inspect build worker status: {source}");
-                    self.stop().await;
-                }
-            }
-        }
-
-        let mut child =
-            TokioCommand::new(env::var("FORGE_NODE_BIN").unwrap_or_else(|_| "node".into()))
-                .arg("--input-type=module")
-                .arg("--eval")
-                .arg(BUILD_WORKER_SCRIPT.as_str())
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true)
-                .spawn()
-                .map_err(|source| {
-                    ServerError::internal(format!("failed to spawn node build worker: {source}"))
-                })?;
-
-        if let Some(stderr) = child.stderr.take() {
-            self.stderr_task = Some(tokio::spawn(async move {
-                let mut reader = TokioBufReader::new(stderr);
-                let mut line = String::new();
-                loop {
-                    line.clear();
-                    match reader.read_line(&mut line).await {
-                        Ok(0) => break,
-                        Ok(_) => {
-                            let line = line.trim_end_matches(['\r', '\n']);
-                            if !line.trim().is_empty() {
-                                tracing::info!(stream = "worker-stderr", "{line}");
-                            }
-                        }
-                        Err(source) => {
-                            tracing::warn!("failed to read build worker stderr: {source}");
-                            break;
-                        }
-                    }
-                }
-            }));
-        }
-
-        self.stdin = child.stdin.take();
-        self.stdout = child.stdout.take().map(TokioBufReader::new);
-        self.child = Some(child);
-        Ok(())
-    }
-
-    async fn read_response(&mut self, id: u64, timeout: Duration) -> Result<BuildWorkerResponse> {
-        tokio::time::timeout(timeout, self.read_response_inner(id))
+    async fn run(&self, project_dir: &Path, plan: &BuildPlan) -> Result<()> {
+        let _guard = self.lock.lock().await;
+        let timeout = build_timeout();
+        tokio::time::timeout(timeout, run_rspack_build(project_dir, plan))
             .await
             .map_err(|_| {
                 ServerError::internal(format!(
-                    "build worker response timed out after {}ms",
+                    "rspack build timed out after {}ms",
                     timeout.as_millis()
                 ))
             })?
     }
-
-    async fn read_response_inner(&mut self, id: u64) -> Result<BuildWorkerResponse> {
-        let stdout = self
-            .stdout
-            .as_mut()
-            .ok_or_else(|| ServerError::internal("build worker stdout is unavailable"))?;
-        let mut line = String::new();
-        loop {
-            line.clear();
-            let read = stdout.read_line(&mut line).await?;
-            if read == 0 {
-                return Err(ServerError::internal(
-                    "build worker exited without a response",
-                ));
-            }
-            if line.trim().is_empty() {
-                continue;
-            }
-            let response =
-                serde_json::from_str::<BuildWorkerResponse>(&line).map_err(|source| {
-                    ServerError::internal(format!(
-                        "failed to parse build worker response: {source}; line={line:?}"
-                    ))
-                })?;
-            if response.id == Some(id) {
-                return Ok(response);
-            }
-            let message = if let Some(error) = response.error {
-                format!(
-                    "build worker error: {error} (response id: {:?}; expected {id})",
-                    response.id
-                )
-            } else {
-                format!(
-                    "unexpected build worker response id {:?}; expected {id}",
-                    response.id
-                )
-            };
-            return Err(ServerError::internal(message));
-        }
-    }
-
-    async fn stop(&mut self) {
-        self.stdin = None;
-        self.stdout = None;
-        if let Some(task) = self.stderr_task.take() {
-            task.abort();
-        }
-        if let Some(mut child) = self.child.take() {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-        }
-    }
-
-    fn abort(&mut self) {
-        self.stdin = None;
-        self.stdout = None;
-        if let Some(task) = self.stderr_task.take() {
-            task.abort();
-        }
-        if let Some(mut child) = self.child.take() {
-            let _ = child.start_kill();
-        }
-    }
 }
 
-impl Drop for BuildWorkerState {
-    fn drop(&mut self) {
-        self.abort();
-    }
+#[cfg(feature = "rspack-build")]
+async fn run_rspack_build(project_dir: &Path, plan: &BuildPlan) -> Result<()> {
+    tracing::debug!(
+        rspack_version = rspack_build::RSPACK_VERSION,
+        "running in-process rspack build"
+    );
+    rspack_build::build_project(project_dir, plan)
+        .await
+        .map_err(|message| ServerError::internal(format!("rspack build failed: {message}")))
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BuildWorkerRequest {
-    id: u64,
-    project_dir: String,
-    build_format: String,
-    external_packages: Vec<String>,
-    timeout_ms: u64,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BuildWorkerResponse {
-    id: Option<u64>,
-    ok: bool,
-    #[serde(default)]
-    error: Option<String>,
-    #[serde(default)]
-    logs: Vec<BuildWorkerLog>,
-}
-
-#[derive(Debug, Deserialize)]
-struct BuildWorkerLog {
-    stream: String,
-    line: String,
+#[cfg(not(feature = "rspack-build"))]
+async fn run_rspack_build(_project_dir: &Path, _plan: &BuildPlan) -> Result<()> {
+    Err(ServerError::internal(
+        "server build requires building forge-job with the `rspack-build` feature",
+    ))
 }
 
 async fn schema_file(AxumPath(name): AxumPath<String>) -> Result<Response> {
@@ -914,10 +701,10 @@ async fn build_project(state: &AppState, value: Value) -> Result<BuildOutput> {
     let build_started = Instant::now();
     state
         .build_worker
-        .run(&prepared.project_dir, &prepared.build_format)
+        .run(&prepared.project_dir, &prepared.plan)
         .await?;
     tracing::debug!(
-        stage = "node_build_worker",
+        stage = "rspack_build",
         elapsed_ms = elapsed_ms(build_started),
         "forge build step completed"
     );
@@ -967,12 +754,13 @@ fn prepare_build_project(state: &AppState, value: Value) -> Result<PreparedBuild
     );
 
     let dist_dir = project_dir.join(&plan.expectations.dist_dir);
+    let expect_systemjs = plan.expectations.systemjs;
     Ok(PreparedBuild {
         _work: work,
+        plan,
         project_dir,
         dist_dir,
-        build_format: plan.expectations.format,
-        expect_systemjs: plan.expectations.systemjs,
+        expect_systemjs,
         total_started,
     })
 }
@@ -1035,11 +823,7 @@ fn write_virtual_files(root: &Path, files: &[VirtualFile]) -> Result<()> {
 }
 
 fn link_node_modules(project_dir: &Path) -> Result<()> {
-    let Some(node_modules_dir) = env::var("FORGE_NODE_MODULES_DIR")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-    else {
+    let Some(node_modules_dir) = node_modules::resolve_build_node_modules_dir() else {
         return Ok(());
     };
     if !node_modules_dir.is_dir() {
@@ -1072,18 +856,6 @@ fn build_timeout() -> Duration {
         .and_then(|value| value.parse::<u64>().ok())
         .map(Duration::from_millis)
         .unwrap_or_else(|| Duration::from_millis(30_000))
-}
-
-fn log_build_worker_output(logs: &[BuildWorkerLog]) {
-    for log in logs {
-        if log.line.trim().is_empty() {
-            continue;
-        }
-        match log.stream.as_str() {
-            "stderr" => tracing::warn!(stream = "stderr", "{}", log.line),
-            _ => tracing::debug!(stream = "stdout", "{}", log.line),
-        }
-    }
 }
 
 fn elapsed_ms(started: Instant) -> u64 {
@@ -1277,9 +1049,9 @@ struct BuildOutput {
 
 struct PreparedBuild {
     _work: TempDir,
+    plan: BuildPlan,
     project_dir: PathBuf,
     dist_dir: PathBuf,
-    build_format: String,
     expect_systemjs: bool,
     total_started: Instant,
 }

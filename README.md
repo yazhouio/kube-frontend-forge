@@ -70,6 +70,35 @@ cargo test --workspace
 cargo test --workspace --features swc
 ```
 
+For faster local Rust linking, Linux developers are recommended to use `mold`
+and macOS developers are recommended to use `sold` (`ld64.sold`). Add this as
+machine-local Cargo config only, so machines without the linker still build
+normally.
+
+Linux:
+
+```toml
+# ~/.cargo/config.toml
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[target.aarch64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+```
+
+macOS:
+
+```toml
+# ~/.cargo/config.toml
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-Wl,--ld-path=/path/to/ld64.sold"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-Wl,--ld-path=/path/to/ld64.sold"]
+```
+
 Run a local full build with the sample manifest:
 
 ```bash
@@ -95,7 +124,7 @@ Build the Job image:
 ```bash
 NPM_AUTH_BASE64='***' docker build \
   -f crates/forge-job/Dockerfile \
-  --target prod \
+  --target job-prod \
   --secret id=npm_auth_base64,env=NPM_AUTH_BASE64 \
   -t frontend-forge-job:prod .
 ```
@@ -105,9 +134,9 @@ Build the shell-friendly debug image:
 ```bash
 NPM_AUTH_BASE64='***' docker build \
   -f crates/forge-job/Dockerfile \
-  --target dev \
+  --target job-debug \
   --secret id=npm_auth_base64,env=NPM_AUTH_BASE64 \
-  -t frontend-forge-job:dev .
+  -t frontend-forge-job:debug .
 ```
 
 Build the HTTP server image:

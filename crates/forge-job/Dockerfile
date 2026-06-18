@@ -1,6 +1,14 @@
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1-bookworm AS rust-builder
+FROM rustlang/rust:nightly-bookworm AS rust-builder
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends clang mold \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="clang" \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="clang" \
+    RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 
 WORKDIR /workspace
 COPY Cargo.toml Cargo.lock ./
@@ -52,7 +60,7 @@ RUN --mount=type=cache,id=forge-pnpm-store,target=/pnpm/store \
     && rm -rf /runtime/forge-job/node_modules/.pnpm/*win32* \
     && rm -rf /runtime/forge-job/node_modules/.pnpm/*musl*
 
-FROM node:22-bookworm-slim AS dev
+FROM node:22-bookworm-slim AS job-debug
 
 ENV NODE_ENV="production"
 ENV FORGE_DEV_MODE="true"
@@ -68,7 +76,21 @@ COPY --from=node-deps /runtime/forge-job/node_modules ./node_modules
 ENTRYPOINT ["frontend-forge-job"]
 CMD ["build", "--input", "/input/manifest.json", "--out-dir", "/output"]
 
-FROM node:22-bookworm-slim AS server-dev
+FROM gcr.io/distroless/cc-debian12 AS job-prod
+
+ENV NODE_ENV="production"
+ENV FORGE_NODE_MODULES_DIR="/app/node_modules"
+ENV FORGE_COMPONENTS_PACKAGE_JSON="/app/node_modules/@frontend-forge/forge-components/package.json"
+ENV FORGE_PNPM_VERSION="11.1.0"
+
+WORKDIR /app
+COPY --from=rust-builder /workspace/target/release/frontend-forge-job /usr/local/bin/frontend-forge-job
+COPY --from=node-deps /runtime/forge-job/node_modules ./node_modules
+
+ENTRYPOINT ["/usr/local/bin/frontend-forge-job"]
+CMD ["build", "--input", "/input/manifest.json", "--out-dir", "/output"]
+
+FROM node:22-bookworm-slim AS server-debug
 
 ENV NODE_ENV="production"
 ENV FORGE_DEV_MODE="true"
@@ -86,30 +108,12 @@ EXPOSE 3000
 ENTRYPOINT ["frontend-forge-server"]
 CMD ["--addr", "0.0.0.0:3000"]
 
-FROM gcr.io/distroless/nodejs22-debian12 AS prod
+FROM gcr.io/distroless/cc-debian12 AS server-prod
 
 ENV NODE_ENV="production"
 ENV FORGE_NODE_MODULES_DIR="/app/node_modules"
 ENV FORGE_COMPONENTS_PACKAGE_JSON="/app/node_modules/@frontend-forge/forge-components/package.json"
 ENV FORGE_PNPM_VERSION="11.1.0"
-ENV FORGE_NODE_VERSION="22.22.3"
-ENV FORGE_NODE_BIN="/nodejs/bin/node"
-
-WORKDIR /app
-COPY --from=rust-builder /workspace/target/release/frontend-forge-job /usr/local/bin/frontend-forge-job
-COPY --from=node-deps /runtime/forge-job/node_modules ./node_modules
-
-ENTRYPOINT ["/usr/local/bin/frontend-forge-job"]
-CMD ["build", "--input", "/input/manifest.json", "--out-dir", "/output"]
-
-FROM gcr.io/distroless/nodejs22-debian12 AS server-prod
-
-ENV NODE_ENV="production"
-ENV FORGE_NODE_MODULES_DIR="/app/node_modules"
-ENV FORGE_COMPONENTS_PACKAGE_JSON="/app/node_modules/@frontend-forge/forge-components/package.json"
-ENV FORGE_PNPM_VERSION="11.1.0"
-ENV FORGE_NODE_VERSION="22.22.3"
-ENV FORGE_NODE_BIN="/nodejs/bin/node"
 
 WORKDIR /app
 COPY --from=rust-builder /workspace/target/release/frontend-forge-server /usr/local/bin/frontend-forge-server

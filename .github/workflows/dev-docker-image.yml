@@ -1,0 +1,142 @@
+name: Dev Docker Image
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Docker target to build
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - prod
+          - debug
+
+env:
+  DOCKER_DEV_PLATFORMS: linux/amd64
+
+jobs:
+  build-dev-image:
+    name: Build and push dev branch images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Generate bake definition
+        env:
+          TARGET_SELECTOR: ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'both' }}
+        run: |
+          set -euo pipefail
+          branch="${GITHUB_REF_NAME//\//-}"
+          sha_short="${GITHUB_SHA::7}"
+
+          BRANCH="$branch" SHA_SHORT="$sha_short" node <<'NODE'
+          const fs = require("node:fs");
+
+          const targetSelector = process.env.TARGET_SELECTOR;
+          const branch = process.env.BRANCH;
+          const shaShort = process.env.SHA_SHORT;
+          const platforms = process.env.DOCKER_DEV_PLATFORMS;
+          const repository = process.env.GITHUB_REPOSITORY;
+          const revision = process.env.GITHUB_SHA;
+          const source = `https://github.com/${repository}`;
+          const cacheScope = "frontend-forge-dev-amd64";
+
+          const targetGroups = {
+            prod: ["job-prod", "server-prod"],
+            debug: ["job-debug", "server-debug"],
+            both: ["job-prod", "job-debug", "server-prod", "server-debug"],
+          };
+
+          const targetConfig = {
+            "job-prod": {
+              image: "spike2044/frontend-forge-job",
+              suffix: "",
+            },
+            "job-debug": {
+              image: "spike2044/frontend-forge-job",
+              suffix: "-debug",
+            },
+            "server-prod": {
+              image: "spike2044/frontend-forge-server",
+              suffix: "",
+            },
+            "server-debug": {
+              image: "spike2044/frontend-forge-server",
+              suffix: "-debug",
+            },
+          };
+
+          const targets = targetGroups[targetSelector];
+          if (!targets) {
+            throw new Error(`Unsupported target: ${targetSelector}`);
+          }
+
+          const bake = {
+            group: {
+              default: {
+                targets,
+              },
+            },
+            target: {},
+          };
+
+          const rows = [];
+          for (const target of targets) {
+            const config = targetConfig[target];
+            const tags = [
+              `${config.image}:${branch}${config.suffix}`,
+              `${config.image}:${branch}-${shaShort}${config.suffix}`,
+            ];
+
+            bake.target[target] = {
+              context: ".",
+              dockerfile: "crates/forge-job/Dockerfile",
+              target,
+              platforms: [platforms],
+              tags,
+              labels: {
+                "org.opencontainers.image.source": source,
+                "org.opencontainers.image.revision": revision,
+              },
+              "cache-from": [`type=gha,scope=${cacheScope}`],
+              "cache-to": [`type=gha,mode=max,scope=${cacheScope}`],
+              secret: ["id=npm_auth_base64,env=NPM_AUTH_BASE64"],
+            };
+            rows.push(`| ${config.image} | ${target} | ${tags.map((tag) => `\`${tag}\``).join("<br>")} |`);
+          }
+
+          fs.writeFileSync("docker-bake.generated.json", JSON.stringify(bake, null, 2));
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            [
+              "## Dev images",
+              "",
+              "| Image | Target | Tags |",
+              "| --- | --- | --- |",
+              ...rows,
+              "",
+            ].join("\n"),
+          );
+          NODE
+
+      - name: Build and push images
+        env:
+          NPM_AUTH_BASE64: ${{ secrets.NPM_AUTH_BASE64 }}
+        run: docker buildx bake --file docker-bake.generated.json --push

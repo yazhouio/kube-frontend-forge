@@ -36,6 +36,7 @@ use tower_http::{
 use tracing::Level;
 use tracing_subscriber::{EnvFilter, fmt};
 
+mod node_modules;
 mod systemjs_validator;
 
 #[cfg(feature = "rspack-build")]
@@ -822,11 +823,7 @@ fn write_virtual_files(root: &Path, files: &[VirtualFile]) -> Result<()> {
 }
 
 fn link_node_modules(project_dir: &Path) -> Result<()> {
-    let Some(node_modules_dir) = env::var("FORGE_NODE_MODULES_DIR")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-    else {
+    let Some(node_modules_dir) = node_modules::resolve_build_node_modules_dir() else {
         return Ok(());
     };
     if !node_modules_dir.is_dir() {

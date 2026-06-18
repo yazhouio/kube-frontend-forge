@@ -1,5 +1,5 @@
 use std::{
-    fs, io,
+    env, fs, io,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -85,16 +85,7 @@ fn compiler(project_dir: &Path, plan: &BuildPlan) -> Result<Compiler, String> {
         .mode(Mode::Production)
         .cache(CacheOptions::Disabled)
         .entry("main", format!("./{}", plan.entry))
-        .resolve(Resolve {
-            extensions: Some(vec![
-                ".tsx".to_owned(),
-                ".ts".to_owned(),
-                ".jsx".to_owned(),
-                ".js".to_owned(),
-                ".json".to_owned(),
-            ]),
-            ..Default::default()
-        })
+        .resolve(resolve_options(project_dir)?)
         .output(output)
         .module(tsx_module_options()?)
         .experiments(ExperimentsBuilder::default().css(true))
@@ -108,6 +99,61 @@ fn compiler(project_dir: &Path, plan: &BuildPlan) -> Result<Compiler, String> {
         .plugin(Box::new(DefinePlugin::new(define_plugin_values())));
 
     builder.build().map_err(|source| source.to_string())
+}
+
+fn resolve_options(project_dir: &Path) -> Result<Resolve, String> {
+    let mut resolve = Resolve {
+        extensions: Some(vec![
+            ".tsx".to_owned(),
+            ".ts".to_owned(),
+            ".jsx".to_owned(),
+            ".js".to_owned(),
+            ".json".to_owned(),
+        ]),
+        ..Default::default()
+    };
+
+    if is_forge_dev_mode() {
+        let forge_components_source = project_dir
+            .join("node_modules")
+            .join("@frontend-forge")
+            .join("forge-components")
+            .join("src")
+            .join("index.ts");
+        if forge_components_source.is_file() {
+            resolve.alias = Some(
+                vec![(
+                    "@frontend-forge/forge-components$".to_owned(),
+                    vec![path_string(&forge_components_source)?.into()],
+                )]
+                .into(),
+            );
+        }
+    }
+
+    Ok(resolve)
+}
+
+fn is_forge_dev_mode() -> bool {
+    env_truthy("FORGE_DEV_MODE") || env::var("NODE_ENV").is_ok_and(|value| value == "development")
+}
+
+fn env_truthy(name: &str) -> bool {
+    env::var(name).is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on" | "dev" | "development"
+        )
+    })
+}
+
+fn path_string(path: &Path) -> Result<String, String> {
+    path.to_str().map(str::to_owned).ok_or_else(|| {
+        format!(
+            "rspack requires UTF-8 paths, got {}",
+            path.to_string_lossy()
+        )
+    })
 }
 
 fn define_plugin_values() -> DefineValue {

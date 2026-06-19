@@ -1,0 +1,323 @@
+name: PR Image Command
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: pr-image-command-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+env:
+  DOCKER_PR_PLATFORMS: linux/amd64
+
+jobs:
+  prepare:
+    name: Parse PR image command
+    if: github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    outputs:
+      command: ${{ steps.command.outputs.command }}
+      head_sha: ${{ steps.command.outputs.head_sha }}
+      pr_number: ${{ steps.command.outputs.pr_number }}
+      sha_short: ${{ steps.command.outputs.sha_short }}
+      should_push: ${{ steps.command.outputs.should_push }}
+      should_run: ${{ steps.command.outputs.should_run }}
+      target_summary: ${{ steps.command.outputs.target_summary }}
+      targets: ${{ steps.command.outputs.targets }}
+    steps:
+      - name: Parse and authorize command
+        id: command
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body.trim();
+            const parts = body.split(/\s+/).filter(Boolean);
+            const allowedCommands = new Set(["/build", "/push"]);
+            const command = allowedCommands.has(parts[0]) ? parts[0] : "";
+            const prNumber = context.payload.issue.number;
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            const commenter = context.payload.comment.user.login;
+            const isOwner = commenter === context.repo.owner;
+            const targetAliases = {
+              all: ["job-prod", "job-debug", "server-prod", "server-debug"],
+              both: ["job-prod", "job-debug", "server-prod", "server-debug"],
+              prod: ["job-prod", "server-prod"],
+              debug: ["job-debug", "server-debug"],
+              job: ["job-prod", "job-debug"],
+              server: ["server-prod", "server-debug"],
+              "job-prod": ["job-prod"],
+              "job-debug": ["job-debug"],
+              "server-prod": ["server-prod"],
+              "server-debug": ["server-debug"],
+            };
+
+            core.setOutput("command", command);
+            core.setOutput("pr_number", String(prNumber));
+            core.setOutput("should_push", String(command === "/push"));
+            core.setOutput("should_run", "false");
+
+            if (!command) {
+              core.notice("Comment does not start with /build or /push.");
+              return;
+            }
+
+            const { data: pull } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            const headRepository = pull.head.repo?.full_name;
+            const sameRepository = headRepository === repository;
+            const headSha = pull.head.sha;
+            const shaShort = headSha.slice(0, 7);
+
+            core.setOutput("head_sha", headSha);
+            core.setOutput("sha_short", shaShort);
+
+            if (!isOwner) {
+              core.notice(`Ignoring ${command}: ${commenter} is not the repository owner.`);
+              return;
+            }
+
+            const requestedTargets = parts
+              .slice(1)
+              .flatMap((part) => part.split(","))
+              .map((part) => part.trim().toLowerCase())
+              .filter(Boolean);
+            const targetKeys = requestedTargets.length > 0 ? requestedTargets : ["all"];
+            const invalidTargets = targetKeys.filter((target) => !targetAliases[target]);
+
+            if (invalidTargets.length > 0) {
+              const message = [
+                `Refusing to run ${command} for PR #${prNumber}.`,
+                `Unsupported image target: ${invalidTargets.map((target) => `\`${target}\``).join(", ")}`,
+                "",
+                "Supported targets: `all`, `both`, `prod`, `debug`, `job`, `server`, `job-prod`, `job-debug`, `server-prod`, `server-debug`.",
+              ].join("\n");
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: message,
+              });
+              core.setFailed(message);
+              return;
+            }
+
+            if (!sameRepository) {
+              const message = [
+                `Refusing to run ${command} for PR #${prNumber}.`,
+                "Docker builds use repository secrets, so image commands are limited to branches from this repository.",
+                `PR source repository: ${headRepository ?? "unknown"}`,
+              ].join("\n");
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: message,
+              });
+              core.setFailed(message);
+              return;
+            }
+
+            const targets = [...new Set(targetKeys.flatMap((target) => targetAliases[target]))];
+            core.setOutput("targets", targets.join(","));
+            core.setOutput("target_summary", targets.join(", "));
+            core.setOutput("should_run", "true");
+
+  docker:
+    name: ${{ needs.prepare.outputs.command }} PR image
+    needs: prepare
+    if: needs.prepare.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        if: needs.prepare.outputs.should_push == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Generate bake definition
+        env:
+          COMMAND: ${{ needs.prepare.outputs.command }}
+          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          TARGETS: ${{ needs.prepare.outputs.targets }}
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          const command = process.env.COMMAND;
+          const headSha = process.env.HEAD_SHA;
+          const prNumber = process.env.PR_NUMBER;
+          const platforms = process.env.DOCKER_PR_PLATFORMS;
+          const repository = process.env.GITHUB_REPOSITORY;
+          const source = `https://github.com/${repository}`;
+          const shaShort = headSha.slice(0, 7);
+          const push = command === "/push";
+
+          const targets = process.env.TARGETS.split(",").filter(Boolean);
+          const targetConfig = {
+            "job-prod": {
+              image: "spike2044/frontend-forge-job",
+              suffix: "",
+            },
+            "job-debug": {
+              image: "spike2044/frontend-forge-job",
+              suffix: "-debug",
+            },
+            "server-prod": {
+              image: "spike2044/frontend-forge-server",
+              suffix: "",
+            },
+            "server-debug": {
+              image: "spike2044/frontend-forge-server",
+              suffix: "-debug",
+            },
+          };
+
+          const bake = {
+            group: {
+              default: {
+                targets,
+              },
+            },
+            target: {},
+          };
+
+          const rows = [];
+          for (const target of targets) {
+            const config = targetConfig[target];
+            const tags = [
+              `${config.image}:pr-${prNumber}${config.suffix}`,
+              `${config.image}:pr-${prNumber}-${shaShort}${config.suffix}`,
+            ];
+
+            bake.target[target] = {
+              context: ".",
+              dockerfile: "crates/forge-job/Dockerfile",
+              target,
+              platforms: [platforms],
+              tags,
+              labels: {
+                "org.opencontainers.image.source": source,
+                "org.opencontainers.image.revision": headSha,
+              },
+              "cache-from": [`type=gha,scope=frontend-forge-pr-${target}`],
+              "cache-to": [`type=gha,mode=max,scope=frontend-forge-pr-${target}`],
+              secret: ["id=npm_auth_base64,env=NPM_AUTH_BASE64"],
+            };
+
+            rows.push(`| ${config.image} | ${target} | ${tags.map((tag) => `\`${tag}\``).join("<br>")} |`);
+          }
+
+          fs.writeFileSync("docker-bake.generated.json", JSON.stringify(bake, null, 2));
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            [
+              push ? "## PR images pushed" : "## PR images built",
+              "",
+              `Command: \`${command}\``,
+              `PR: #${prNumber}`,
+              `Revision: \`${headSha}\``,
+              "",
+              "| Image | Target | Tags |",
+              "| --- | --- | --- |",
+              ...rows,
+              "",
+            ].join("\n"),
+          );
+          NODE
+
+      - name: Build PR images
+        if: needs.prepare.outputs.should_push != 'true'
+        env:
+          NPM_AUTH_BASE64: ${{ secrets.NPM_AUTH_BASE64 }}
+        run: docker buildx bake --file docker-bake.generated.json
+
+      - name: Build and push PR images
+        if: needs.prepare.outputs.should_push == 'true'
+        env:
+          NPM_AUTH_BASE64: ${{ secrets.NPM_AUTH_BASE64 }}
+        run: docker buildx bake --file docker-bake.generated.json --push
+
+      - name: Comment result
+        uses: actions/github-script@v7
+        env:
+          COMMAND: ${{ needs.prepare.outputs.command }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          SHA_SHORT: ${{ needs.prepare.outputs.sha_short }}
+          SHOULD_PUSH: ${{ needs.prepare.outputs.should_push }}
+          TARGETS: ${{ needs.prepare.outputs.targets }}
+        with:
+          script: |
+            const command = process.env.COMMAND;
+            const pushed = process.env.SHOULD_PUSH === "true";
+            const prNumber = Number(process.env.PR_NUMBER);
+            const shaShort = process.env.SHA_SHORT;
+            const targetConfig = {
+              "job-prod": {
+                image: "spike2044/frontend-forge-job",
+                suffix: "",
+              },
+              "job-debug": {
+                image: "spike2044/frontend-forge-job",
+                suffix: "-debug",
+              },
+              "server-prod": {
+                image: "spike2044/frontend-forge-server",
+                suffix: "",
+              },
+              "server-debug": {
+                image: "spike2044/frontend-forge-server",
+                suffix: "-debug",
+              },
+            };
+            const tags = process.env.TARGETS.split(",")
+              .filter(Boolean)
+              .flatMap((target) => {
+                const config = targetConfig[target];
+                return [
+                  `${config.image}:pr-${prNumber}${config.suffix}`,
+                  `${config.image}:pr-${prNumber}-${shaShort}${config.suffix}`,
+                ];
+              });
+
+            const body = [
+              `${command} completed for commit \`${shaShort}\`.`,
+              "",
+              pushed
+                ? ["Pushed tags:", ...tags.map((tag) => `- \`${tag}\``)].join("\n")
+                : "Images were built but not pushed.",
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body,
+            });

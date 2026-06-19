@@ -1,7 +1,6 @@
 name: Docker Image
 
 on:
-  pull_request:
   push:
     branches:
       - main
@@ -9,49 +8,9 @@ on:
     types:
       - published
 
-env:
-  DOCKER_PR_PLATFORMS: linux/amd64
-
 jobs:
-  build-pr-image:
-    name: Build PR image (${{ matrix.image }}:${{ matrix.target }})
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    strategy:
-      matrix:
-        include:
-          - image: spike2044/frontend-forge-job
-            target: job-debug
-            variant: debug
-          - image: spike2044/frontend-forge-server
-            target: server-debug
-            variant: debug
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build ${{ matrix.image }}:${{ matrix.variant }}
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: crates/forge-job/Dockerfile
-          target: ${{ matrix.target }}
-          platforms: ${{ env.DOCKER_PR_PLATFORMS }}
-          push: false
-          tags: ${{ matrix.image }}:pr-${{ github.event.pull_request.number }}-${{ matrix.variant }}
-          cache-from: type=gha,scope=frontend-forge-${{ matrix.target }}
-          cache-to: type=gha,mode=max,scope=frontend-forge-${{ matrix.target }}
-          secrets: |
-            npm_auth_base64=${{ secrets.NPM_AUTH_BASE64 }}
-
   build-image-by-arch:
     name: Build and push images (${{ matrix.arch }})
-    if: github.event_name == 'release' || github.event_name == 'push'
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -171,7 +130,6 @@ jobs:
 
   merge-manifests:
     name: Merge multi-arch image (${{ matrix.image }}:${{ matrix.target }})
-    if: github.event_name == 'release' || github.event_name == 'push'
     runs-on: ubuntu-latest
     needs: [build-image-by-arch]
     permissions:

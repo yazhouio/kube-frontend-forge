@@ -885,7 +885,9 @@ fn write_virtual_files(root: &Path, files: &[VirtualFile]) -> Result<()> {
 }
 
 fn link_node_modules(project_dir: &Path) -> Result<()> {
-    let Some(node_modules_dir) = node_modules::resolve_build_node_modules_dir() else {
+    let Some(node_modules_dir) =
+        node_modules::resolve_build_node_modules_dir(node_modules::NodeModulesProfile::Server)
+    else {
         return Ok(());
     };
     if !node_modules_dir.is_dir() {

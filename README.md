@@ -64,8 +64,10 @@ pnpm install
 ```
 
 The pnpm workspace is intentionally narrow: `crates/forge-job` provides the
-Node runtime dependencies for the legacy build script, and
-`packages/forge-components` is the TS/React runtime package linked by the Job.
+Job runtime dependencies, including the legacy Node build script dependencies;
+`crates/forge-server` provides the HTTP server runtime dependencies without the
+legacy esbuild/SWC packages; and `packages/forge-components` is the TS/React
+runtime package linked by generated projects.
 
 Build the TS runtime components when validating the published package output:
 

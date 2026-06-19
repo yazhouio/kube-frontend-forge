@@ -57,6 +57,45 @@ importers:
         specifier: ^4.5.5
         version: 4.5.7(@types/react@17.0.90)(react@17.0.2)
 
+  crates/forge-server:
+    dependencies:
+      '@frontend-forge/forge-components':
+        specifier: workspace:*
+        version: link:../../packages/forge-components
+      '@tanstack/react-table':
+        specifier: ^8.21.3
+        version: 8.21.3(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
+      es-toolkit:
+        specifier: ^1.43.0
+        version: 1.43.0
+      postcss:
+        specifier: ^8.5.6
+        version: 8.5.6
+      qs:
+        specifier: 6.14.1
+        version: 6.14.1
+      react:
+        specifier: ^17.0.2
+        version: 17.0.2
+      react-dom:
+        specifier: ^17.0.2
+        version: 17.0.2(react@17.0.2)
+      react-query:
+        specifier: ^3.32.1
+        version: 3.39.3(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
+      react-router-dom:
+        specifier: ^6.22.3
+        version: 6.30.3(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
+      styled-components:
+        specifier: 5.3.3
+        version: 5.3.3(react-dom@17.0.2(react@17.0.2))(react-is@18.3.1)(react@17.0.2)
+      swr:
+        specifier: ^2.3.8
+        version: 2.3.8(react@17.0.2)
+      zustand:
+        specifier: ^4.5.5
+        version: 4.5.7(@types/react@17.0.90)(react@17.0.2)
+
   packages/forge-components:
     dependencies:
       es-toolkit:

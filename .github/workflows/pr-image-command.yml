@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: pr-image-command-${{ github.event.issue.number }}
@@ -143,6 +143,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      pull-requests: write
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v6
@@ -315,9 +316,13 @@ jobs:
                 : "Images were built but not pushed.",
             ].join("\n");
 
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body,
-            });
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            } catch (error) {
+              core.warning(`Image command completed, but failed to comment on PR #${prNumber}: ${error.message}`);
+            }

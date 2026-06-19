@@ -53,24 +53,18 @@ RUN pnpm --filter @frontend-forge/forge-components build
 RUN --mount=type=cache,id=forge-pnpm-store,target=/pnpm/store \
     pnpm --store-dir /pnpm/store --config.inject-workspace-packages=true --filter @frontend-forge/forge-job-runtime deploy --prod /runtime/forge-job \
     && pnpm --store-dir /pnpm/store --config.inject-workspace-packages=true --filter @frontend-forge/forge-server-runtime deploy --prod /runtime/forge-server \
-    && find /runtime/forge-job -path '*/node_modules/*' -type d \( \
-      -name test -o -name tests -o -name __tests__ -o -name docs -o -name doc -o -name examples -o -name example -o -name benchmark -o -name benchmarks \
-    \) -prune -exec rm -rf '{}' + \
-    && find /runtime/forge-server -path '*/node_modules/*' -type d \( \
-      -name test -o -name tests -o -name __tests__ -o -name docs -o -name doc -o -name examples -o -name example -o -name benchmark -o -name benchmarks \
-    \) -prune -exec rm -rf '{}' + \
-    && find /runtime/forge-job -path '*/node_modules/*' -type f \( \
-      -name '*.md' -o -name '*.markdown' -o -name '*.map' \
-    \) -delete \
-    && find /runtime/forge-server -path '*/node_modules/*' -type f \( \
-      -name '*.md' -o -name '*.markdown' -o -name '*.map' \
-    \) -delete \
-    && rm -rf /runtime/forge-job/node_modules/.pnpm/*darwin* \
-    && rm -rf /runtime/forge-job/node_modules/.pnpm/*win32* \
-    && rm -rf /runtime/forge-job/node_modules/.pnpm/*musl* \
-    && rm -rf /runtime/forge-server/node_modules/.pnpm/*darwin* \
-    && rm -rf /runtime/forge-server/node_modules/.pnpm/*win32* \
-    && rm -rf /runtime/forge-server/node_modules/.pnpm/*musl*
+    && set -e \
+    && for dir in /runtime/forge-job /runtime/forge-server; do \
+      find "$dir" -path '*/node_modules/*' -type d \( \
+        -name test -o -name tests -o -name __tests__ -o -name docs -o -name doc -o -name examples -o -name example -o -name benchmark -o -name benchmarks \
+      \) -prune -exec rm -rf '{}' +; \
+      find "$dir" -path '*/node_modules/*' -type f \( \
+        -name '*.md' -o -name '*.markdown' -o -name '*.map' \
+      \) -delete; \
+      rm -rf "$dir"/node_modules/.pnpm/*darwin*; \
+      rm -rf "$dir"/node_modules/.pnpm/*win32*; \
+      rm -rf "$dir"/node_modules/.pnpm/*musl*; \
+    done
 
 FROM node:22-bookworm-slim AS job-debug
 

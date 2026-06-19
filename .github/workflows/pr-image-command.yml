@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: pr-image-command-${{ github.event.issue.number }}
@@ -29,6 +29,7 @@ jobs:
       sha_short: ${{ steps.command.outputs.sha_short }}
       should_push: ${{ steps.command.outputs.should_push }}
       should_run: ${{ steps.command.outputs.should_run }}
+      status_comment_id: ${{ steps.command.outputs.status_comment_id }}
       target_summary: ${{ steps.command.outputs.target_summary }}
       targets: ${{ steps.command.outputs.targets }}
     steps:
@@ -133,6 +134,22 @@ jobs:
             const targets = [...new Set(targetKeys.flatMap((target) => targetAliases[target]))];
             core.setOutput("targets", targets.join(","));
             core.setOutput("target_summary", targets.join(", "));
+
+            const pendingBody = [
+              `已收到 ${command} 请求，正在执行...`,
+              "",
+              `PR: #${prNumber}`,
+              `Commit: \`${shaShort}\``,
+              `Targets: \`${targets.join("`, `")}\``,
+            ].join("\n");
+            const { data: statusComment } = await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: pendingBody,
+            });
+
+            core.setOutput("status_comment_id", String(statusComment.id));
             core.setOutput("should_run", "true");
 
   docker:
@@ -143,6 +160,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      pull-requests: write
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v6
@@ -254,22 +272,28 @@ jobs:
           NODE
 
       - name: Build PR images
+        id: build
         if: needs.prepare.outputs.should_push != 'true'
         env:
           NPM_AUTH_BASE64: ${{ secrets.NPM_AUTH_BASE64 }}
         run: docker buildx bake --file docker-bake.generated.json
 
       - name: Build and push PR images
+        id: push
         if: needs.prepare.outputs.should_push == 'true'
         env:
           NPM_AUTH_BASE64: ${{ secrets.NPM_AUTH_BASE64 }}
         run: docker buildx bake --file docker-bake.generated.json --push
 
-      - name: Comment result
+      - name: Update command result
+        if: always()
         uses: actions/github-script@v7
         env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          COMMENT_ID: ${{ needs.prepare.outputs.status_comment_id }}
           COMMAND: ${{ needs.prepare.outputs.command }}
           PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          PUSH_OUTCOME: ${{ steps.push.outcome }}
           SHA_SHORT: ${{ needs.prepare.outputs.sha_short }}
           SHOULD_PUSH: ${{ needs.prepare.outputs.should_push }}
           TARGETS: ${{ needs.prepare.outputs.targets }}
@@ -277,8 +301,11 @@ jobs:
           script: |
             const command = process.env.COMMAND;
             const pushed = process.env.SHOULD_PUSH === "true";
+            const commentId = Number(process.env.COMMENT_ID);
             const prNumber = Number(process.env.PR_NUMBER);
             const shaShort = process.env.SHA_SHORT;
+            const taskOutcome = pushed ? process.env.PUSH_OUTCOME : process.env.BUILD_OUTCOME;
+            const succeeded = taskOutcome === "success";
             const targetConfig = {
               "job-prod": {
                 image: "spike2044/frontend-forge-job",
@@ -308,16 +335,26 @@ jobs:
               });
 
             const body = [
-              `${command} completed for commit \`${shaShort}\`.`,
+              succeeded
+                ? `${command} 已完成，commit \`${shaShort}\`。`
+                : `${command} 失败，commit \`${shaShort}\`。`,
               "",
-              pushed
-                ? ["Pushed tags:", ...tags.map((tag) => `- \`${tag}\``)].join("\n")
-                : "Images were built but not pushed.",
+              `Targets: \`${process.env.TARGETS.split(",").filter(Boolean).join("`, `")}\``,
+              "",
+              succeeded && pushed
+                ? ["已推送 tags:", ...tags.map((tag) => `- \`${tag}\``)].join("\n")
+                : succeeded
+                  ? "镜像已构建，未推送。"
+                  : "请查看 workflow logs 获取失败详情。",
             ].join("\n");
 
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body,
-            });
+            try {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: commentId,
+                body,
+              });
+            } catch (error) {
+              core.warning(`Image command finished, but failed to update the result comment for PR #${prNumber}: ${error.message}`);
+            }

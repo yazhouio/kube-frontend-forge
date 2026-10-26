@@ -91,6 +91,7 @@ fn menu_definition() -> Value {
             "icon": { "type": "string" },
             "order": { "type": "number" },
             "clusterModule": { "type": "string" },
+            "workspaceModule": { "type": "string" },
             "skipWorkspaceAuth": { "type": "boolean" }
         }
     })

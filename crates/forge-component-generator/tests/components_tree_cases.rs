@@ -318,7 +318,25 @@ fn built_in_components_tree_matrix_generates_valid_tsx() {
                 "function WidgetTable",
                 "useWorkspaceTableActions",
                 "useWorkspaceProjectSelect",
+                "const __clusterModule = \"\";",
+                "}, __filterInstalledClusters)",
                 "<PageTable",
+            ],
+        },
+        Case {
+            name: "workspace_crd_table_with_cluster_module",
+            registry: CaseRegistry::Default,
+            tree: {
+                let mut tree =
+                    crd_table_case("workspace-module-widgets", "workspace-crd-page-state");
+                tree["dataSources"][1]["config"]["CLUSTER_MODULE"] =
+                    serde_json::json!("widgets-extension");
+                tree
+            },
+            required: &[
+                "const __clusterModule = \"widgets-extension\";",
+                "enabledExtensionModulesStatus?.[__clusterModule]",
+                "}, __filterInstalledClusters)",
             ],
         },
     ];

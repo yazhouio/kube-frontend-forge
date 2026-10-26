@@ -2,6 +2,9 @@ import styled from "styled-components";
 
 export const PageContainer = styled.div`
   padding: 20px;
+  /* PageLayout clips overflow, so the container is the scroll area. */
+  min-height: 0;
+  overflow-y: auto;
   table .table-cell {
     word-break: break-word;
     .field-label {

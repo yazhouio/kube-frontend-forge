@@ -20,6 +20,8 @@ pub struct MenuMeta {
     pub order: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cluster_module: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_module: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_workspace_auth: Option<bool>,
 }

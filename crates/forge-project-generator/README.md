@@ -19,6 +19,27 @@ workspace-linked `@frontend-forge/forge-components` from `src/index.ts` only
 when `FORGE_DEV_MODE=true` and that source entry exists. Production builds fall
 back to the package default entry.
 
+## Menu metadata
+
+Each `manifest.menus[]` entry supports `parent`, `name`, `title`, and optional
+`icon`, `order`, `clusterModule`, and `workspaceModule`. Unknown fields are
+rejected by the manifest schema. Normalization always sets
+`skipWorkspaceAuth: true`.
+
+`clusterModule` and `workspaceModule` hold a KubeSphere extension name. The
+console reads `ksConfig.enabledExtensionModulesStatus[<name>].clusterSchedulingStatuses`
+and hides the menu where the extension is not installed:
+
+- `clusterModule` (menus under `cluster`): shown only on clusters where the
+  extension is installed.
+- `workspaceModule` (menus under `workspace`): shown only when at least one of
+  the workspace's clusters has the extension installed.
+
+When both fields are omitted, the menu is shown everywhere, as before. The
+frontend-forge controller sets them for FrontendExtension packages only, so
+controller releases that emit `workspaceModule` require a frontend-forge
+release that accepts it.
+
 The page body is supplied by a `PageRenderer` callback in library usage. The CLI uses a minimal placeholder page renderer, so it is mostly for testing the project-file pipeline independently from `forge-core`.
 
 ## Usage

@@ -14,6 +14,10 @@
         "type": "string",
         "description": "Scope name"
       },
+      "CLUSTER_MODULE": {
+        "type": "string",
+        "description": "Extension name; limits the cluster selector to clusters where it is installed"
+      },
       "HOOK_NAME": {
         "type": "string",
         "description": "Hook name"
@@ -52,24 +56,33 @@
         "depends": ["storeDecl"]
       },
       {
+        "id": "clusterFilterDecl",
+        "scope": "moduleDecl",
+        "code": "const __clusterModule = %%CLUSTER_MODULE%%;\nconst __filterInstalledClusters = (clusters) =>\n  __clusterModule\n    ? (clusters || []).filter((cluster) =>\n        Boolean(\n          globalThis.globals?.ksConfig?.enabledExtensionModulesStatus?.[__clusterModule]\n            ?.clusterSchedulingStatuses?.[cluster?.name],\n        ),\n      )\n    : clusters;",
+        "output": ["__clusterModule", "__filterInstalledClusters"],
+        "depends": []
+      },
+      {
         "id": "hookDecl",
         "scope": "moduleDecl",
-        "code": "const %%HOOK_NAME%% = (columns, storeOptions = undefined) => {\n  const pageId = %%PAGE_ID%%;\n  const page = usePageStore({ pageId, columns });\n  const runtime = useRuntimeContext();\n  const params = runtime?.route?.params || {};\n  const pageContext = {...runtime?.capabilities, useTableActions: runtime?.capabilities?.useWorkspaceTableActions};\n  const storeQuery = useMemo(() => buildSearchObject(page, true), [page]);\n\n  const useWorkspaceProjectSelectHook = useMemo(\n    () =>\n      pageContext?.useWorkspaceProjectSelect ||\n      (() => ({ render: null, params: {} })),\n    [pageContext],\n  );\n  const {\n    render: renderProjectSelect,\n    params: { cluster, namespace },\n  } = useWorkspaceProjectSelectHook({\n    workspace: params.workspace,\n    showAll: false,\n  });\n\n  const resolvedOptions =\n    storeOptions && Object.prototype.hasOwnProperty.call(storeOptions, \"enabled\")\n      ? storeOptions\n      : {\n          ...(storeOptions || {}),\n          enabled: Boolean(namespace),\n        };\n\n  const store = useStore(\n    {\n      params: { ...params, namespace, cluster },\n      query: storeQuery,\n    },\n    resolvedOptions,\n  );\n\n  return {\n    params: { ...params, namespace, cluster },\n    toolbarLeft: renderProjectSelect,\n    pageContext,\n    data: store.data,\n    loading: Boolean(store.isLoading || store.isValidating),\n    refetch: store.mutate,\n    update: store.update,\n    del: store.batchDelete,\n    create: store.create,\n  };\n};",
+        "code": "const %%HOOK_NAME%% = (columns, storeOptions = undefined) => {\n  const pageId = %%PAGE_ID%%;\n  const page = usePageStore({ pageId, columns });\n  const runtime = useRuntimeContext();\n  const params = runtime?.route?.params || {};\n  const pageContext = {...runtime?.capabilities, useTableActions: runtime?.capabilities?.useWorkspaceTableActions};\n  const storeQuery = useMemo(() => buildSearchObject(page, true), [page]);\n\n  const useWorkspaceProjectSelectHook = useMemo(\n    () =>\n      pageContext?.useWorkspaceProjectSelect ||\n      (() => ({ render: null, params: {} })),\n    [pageContext],\n  );\n  const {\n    render: renderProjectSelect,\n    params: { cluster, namespace },\n  } = useWorkspaceProjectSelectHook(\n    {\n      workspace: params.workspace,\n      showAll: false,\n    },\n    __filterInstalledClusters,\n  );\n\n  const resolvedOptions =\n    storeOptions && Object.prototype.hasOwnProperty.call(storeOptions, \"enabled\")\n      ? storeOptions\n      : {\n          ...(storeOptions || {}),\n          enabled: Boolean(namespace),\n        };\n\n  const store = useStore(\n    {\n      params: { ...params, namespace, cluster },\n      query: storeQuery,\n    },\n    resolvedOptions,\n  );\n\n  return {\n    params: { ...params, namespace, cluster },\n    toolbarLeft: renderProjectSelect,\n    pageContext,\n    data: store.data,\n    loading: Boolean(store.isLoading || store.isValidating),\n    refetch: store.mutate,\n    update: store.update,\n    del: store.batchDelete,\n    create: store.create,\n  };\n};",
         "output": ["HOOK_NAME"],
-        "depends": ["storeDecl"]
+        "depends": ["storeDecl", "clusterFilterDecl"]
       }
     ],
     "meta": {
       "inputPaths": {
         "storeDecl": ["CRD_CONFIG"],
         "fallbackCommandDecl": ["CRD_CONFIG"],
+        "clusterFilterDecl": ["CLUSTER_MODULE"],
         "hookDecl": ["HOOK_NAME", "PAGE_ID", "SCOPE"]
       }
     },
     "defaults": {
       "CRD_CONFIG": "{}",
       "PAGE_ID": { "type": "dataSourceIdJson" },
-      "SCOPE": "\"cluster\""
+      "SCOPE": "\"cluster\"",
+      "CLUSTER_MODULE": "\"\""
     }
   }
 }

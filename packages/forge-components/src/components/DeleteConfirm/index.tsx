@@ -97,6 +97,12 @@ export function DeleteConfirmModal({
 }: DeleteConfirmModalProps) {
   const runtime = useRuntimeContext();
   const t = runtime?.capabilities?.t ?? ((d: string) => d);
+  // `type` may be an i18n key (e.g. DEPLOYMENT) or an already displayable
+  // title. Fall back to the raw type when a derived key is not translated.
+  const translateType = (key: string) => {
+    const translated = t(key);
+    return translated && translated !== key ? translated : t(type || "");
+  };
   const typeKey = type || "";
   const typeKeyLow = type ? `${type}_LOW` : "";
   const typeKeyPl = type ? `${type}_PL` : "";
@@ -115,7 +121,7 @@ export function DeleteConfirmModal({
         return t("DELETE_TITLE_SI", { type: t(typeKey) });
       }
 
-      return t("DELETE_TITLE_PL", { type: t(typeKeyPl) });
+      return t("DELETE_TITLE_PL", { type: translateType(typeKeyPl) });
     }
 
     return t("DELETE");
@@ -136,13 +142,13 @@ export function DeleteConfirmModal({
     if (hasResourceAndType) {
       if (isSingleResource) {
         return t("DELETE_RESOURCE_TYPE_DESC_SI", {
-          type: t(typeKeyLow),
+          type: translateType(typeKeyLow),
           resource: resourceString,
         });
       }
 
       return t("DELETE_RESOURCE_TYPE_DESC_PL", {
-        type: t(typeKeyLow),
+        type: translateType(typeKeyLow),
         resource: resourceString,
       });
     }

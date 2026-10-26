@@ -162,7 +162,7 @@ function BasePageTable(props) {
             onOk: async () => {
               await del(resource.map((name) => ({ ...params, name })));
               tableRef.current?.resetRowSelection(true);
-              notify.success(t("DELETE_SUCCESSFUL"));
+              notify.success(t("DELETED_SUCCESSFULLY"));
               closeDelYaml();
             },
           });
@@ -211,7 +211,7 @@ function BasePageTable(props) {
             onOk: async () => {
               await del([{ ...params, name }]);
               tableRef.current?.resetRowSelection(true);
-              notify.success(t("DELETE_SUCCESSFUL"));
+              notify.success(t("DELETED_SUCCESSFULLY"));
               closeDelYaml();
             },
           });

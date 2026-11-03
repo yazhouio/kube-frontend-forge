@@ -1345,6 +1345,7 @@ mod tests {
         let code = test_generator().generate_page_code(&page).unwrap();
         assert_code_contains(&code, "const useWorkspaceProjectSelectHook = useMemo(");
         assert_code_contains(&code, "pageContext?.useWorkspaceProjectSelect");
+        assert_code_contains(&code, "requireProjectViewPermission: true");
         assert_code_contains(&code, "enabled: Boolean(namespace)");
         assert_code_contains(&code, "params: { ...params, namespace, cluster }");
         assert_code_contains(&code, "toolbarLeft: renderProjectSelect");

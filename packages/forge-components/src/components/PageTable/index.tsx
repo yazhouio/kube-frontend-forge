@@ -58,6 +58,7 @@ export const defaultCheckboxColumn = {
 } as const;
 
 const useNoopActions = () => () => null;
+const deniedData = { data: [], total: 0 };
 
 function BasePageTable(props) {
   const {
@@ -84,14 +85,28 @@ function BasePageTable(props) {
     useItemActions = useNoopActions,
     useBatchActions = useNoopActions,
     useTableActions = useNoopActions,
+    getActions,
+    requireProjectViewPermission,
   } = resolvedPageContext;
   const t = runtime?.capabilities?.t ?? ((d: string) => d);
   const tableRef = React.useRef<Table<Record<string, unknown>>>(null);
   const resolvedParams = params ?? {};
-  const matchedFallback = resolveMatchedFallback(
-    fallbacks as PageTableFallbacks | undefined,
-    data,
+  // Workspace pages pick a project in the toolbar; the console loads that
+  // project's rules before exposing the namespace, so gate on its view action.
+  const viewDenied = Boolean(
+    requireProjectViewPermission &&
+      authKey &&
+      resolvedParams.namespace &&
+      typeof getActions === "function" &&
+      !getActions({
+        module: authKey,
+        ...resolvedParams,
+        project: resolvedParams.namespace,
+      }).includes("view"),
   );
+  const matchedFallback = viewDenied
+    ? undefined
+    : resolveMatchedFallback(fallbacks as PageTableFallbacks | undefined, data);
 
   const { open: createYaml, close: closeYaml } = useModalAction({
     id: tableKey + "-create",
@@ -234,9 +249,11 @@ function BasePageTable(props) {
         toolbarLeft: toolbarLeft?.(),
         batchActions: batchActions?.(),
         toolbarRight: tableActions?.(),
+        refreshDisabled: viewDenied,
       }),
       filters: () => {
         return {
+          disabled: viewDenied,
           simpleMode: false,
           suggestions: [
             {
@@ -246,6 +263,14 @@ function BasePageTable(props) {
           ],
         };
       },
+      ...(viewDenied
+        ? {
+            empty: () => ({
+              title: t("NO_PERMISSIONS"),
+              description: null,
+            }),
+          }
+        : {}),
     },
   };
 
@@ -279,8 +304,8 @@ function BasePageTable(props) {
             <BaseTable
               {...rest}
               ref={tableRef}
-              data={data}
-              isLoading={isLoading}
+              data={viewDenied ? deniedData : data}
+              isLoading={viewDenied ? false : isLoading}
               tableMeta={tableMeta}
               columns={tableColumns}
             />

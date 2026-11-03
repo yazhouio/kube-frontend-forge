@@ -56,7 +56,10 @@ optional `CLUSTER_MODULE`. `CLUSTER_MODULE` is a KubeSphere extension name; when
 set, the workspace cluster selector (`useWorkspaceProjectSelect`) only lists
 clusters whose `ksConfig.enabledExtensionModulesStatus[<name>].clusterSchedulingStatuses`
 entry is set, and the default cluster is chosen from that filtered list. It
-defaults to `""`, which keeps every workspace cluster.
+defaults to `""`, which keeps every workspace cluster. Its `pageContext` sets
+`requireProjectViewPermission`, so `PageTable` shows `NO_PERMISSIONS` (keeping
+the project selector) when the selected project's rules lack `view` on the
+table's `authKey`.
 
 Full dependency graph parity with the TypeScript implementation is not complete yet. Render boundary semantics are represented by `meta.scope` nodes becoming functions, while non-scoped children are inlined into the nearest scoped parent with output-name collision handling. Data source and runtime usage is collected from node bindings, data source args, runtime props, and action graph `callDataSource` steps. The current action graph implementation covers the important `static`/`rest` request modes and keeps a mutate fallback for CRD-style data sources. Generated formatting intentionally follows the active `JsCodeBackend` output instead of trying to match Babel formatting exactly.
 
